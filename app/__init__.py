@@ -1,0 +1,1 @@
+"""DIY Helper application."""

@@ -1,0 +1,2 @@
+Database schema changes are managed by Alembic. Create a revision with
+`alembic revision --autogenerate -m "description"` and review it before applying.

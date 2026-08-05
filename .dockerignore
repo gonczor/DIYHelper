@@ -1,0 +1,13 @@
+.env
+.git
+.github
+.idea
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.py[cod]
+*.sqlite3
+Dockerfile*
+docker-compose*.yml
+compose*.yml
