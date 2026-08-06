@@ -19,6 +19,7 @@ class Task(Base):
         Enum(TaskStatus, name="task_status"), default=TaskStatus.PENDING, index=True
     )
     parameters: Mapped[dict[str, Any]] = mapped_column(JSON)
+    request_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     details: Mapped[dict[str, Any]] = mapped_column(
         JSON, default=dict, server_default=text("'{}'::json"), nullable=False
     )

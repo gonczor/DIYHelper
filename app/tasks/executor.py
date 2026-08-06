@@ -1,11 +1,15 @@
 import time
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import structlog
 from structlog.typing import FilteringBoundLogger
 
+from app.observability.context import bind_request_id
 from app.tasks.handlers import TaskHandler
+from app.tasks.models import Task
 from app.tasks.repository import TaskRepository
+
+logger = structlog.get_logger(__name__)
 
 
 class UnknownTaskTypeError(RuntimeError):
@@ -39,38 +43,47 @@ class TaskExecutor:
         self,
         repository: TaskRepository,
         handlers: dict[str, TaskHandler],
-        logger: FilteringBoundLogger,
     ) -> None:
         self._repository = repository
         self._handlers = handlers
-        self._logger = logger
 
     async def execute(self, task_id: UUID) -> None:
         task = await self._repository.get(task_id)
-        logger = self._logger.bind(task_id=str(task_id), task_type=task.type)
+        request_id = task.request_id or str(uuid4())
+        if task.request_id is None:
+            await self._repository.set_request_id(task_id, request_id)
+        await self._execute_with_logging_context(task, request_id)
+
+    async def _execute_with_logging_context(
+        self,
+        task: Task,
+        request_id: str,
+    ) -> None:
+        """Keep logging context management outside the task lifecycle logic."""
+        with bind_request_id(request_id):
+            task_logger = logger.bind(task_id=str(task.id), task_type=task.type)
+            await self._execute_task(task, task_logger)
+
+    async def _execute_task(self, task: Task, logger: FilteringBoundLogger) -> None:
         started_at = time.perf_counter()
         try:
             handler = self._handlers.get(task.type)
             if handler is None:
                 raise UnknownTaskTypeError(f"no handler registered for task type: {task.type}")
-            await self._repository.mark_running(task_id)
+            await self._repository.mark_running(task.id)
             await logger.ainfo("task started")
             result = await handler(
                 task.parameters,
-                RepositoryTaskProgress(self._repository, task_id),
+                RepositoryTaskProgress(self._repository, task.id),
             )
-            await self._repository.mark_succeeded(task_id, result)
+            await self._repository.mark_succeeded(task.id, result)
             await logger.ainfo("task completed", duration_seconds=time.perf_counter() - started_at)
         except Exception as error:
             await self._repository.mark_failed(
-                task_id,
+                task.id,
                 {"type": type(error).__name__, "message": str(error)},
             )
             await logger.aexception(
                 "task failed",
                 duration_seconds=time.perf_counter() - started_at,
             )
-
-
-def get_task_logger() -> FilteringBoundLogger:
-    return structlog.get_logger("tasks")

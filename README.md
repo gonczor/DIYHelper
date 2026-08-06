@@ -57,6 +57,25 @@ queue-free solution for now. The task can be interrupted if the application rest
 may limit CPU after returning the HTTP response. Rerun the affected month when that happens. See
 [ADR 0001](docs/architecture/decisions/0001-in-process-background-tasks.md) for the accepted risks.
 
+## Questions and conversations
+
+Ask a question with the authenticated `POST /questions` endpoint. The response uses Server-Sent
+Events so Gemini text is delivered as it is generated. Omit `sources` (or send `null`) to include
+all stored knowledge, provide source names such as `hackaday` to restrict the scope, or send an empty
+list to use Gemini's broad knowledge. Pass the `conversation_id` returned by the first metadata event
+to ask follow-up questions.
+
+```shell
+curl --no-buffer http://localhost:8000/questions \
+  -H "X-Auth-Token: $AUTH_HEADER" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is an ESP32?","sources":["hackaday"]}'
+```
+
+Conversation messages are stored as one JSON value. At 20 messages, Gemini summarizes older
+context while the latest 6 messages remain verbatim. Set `GEMINI_API_KEY` to use this endpoint. See
+[ADR 0002](docs/architecture/decisions/0002-streamed-questions-and-conversations.md) for limitations.
+
 ## Task execution
 
 Task scheduling and task processing are separate. A scheduler only transports a persisted task ID;
@@ -90,8 +109,9 @@ changes to the executor or handlers.
 
 Set `STORAGE_BACKEND` to select the application-wide storage implementation:
 
-- `local` writes files below `LOCAL_STORAGE_ROOT` (default: `data`). This directory is ignored by
-  Git.
+- `local` writes files below `LOCAL_STORAGE_ROOT` (default: `<project-root>/data`). Relative paths
+  are resolved from the project root regardless of the process working directory. This directory
+  is ignored by Git.
 - `gcs` writes files to `GCS_STORAGE_BUCKET`, optionally below `GCS_STORAGE_PREFIX`. GCP
   Application Default Credentials are used for authentication.
 

@@ -1,0 +1,183 @@
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+
+from app.questions.domain import ConversationMessage
+from app.questions.service import QuestionService
+from app.storage.memory import MemoryStorage
+
+
+class StubConversationRepository:
+    def __init__(self, messages=None, summary=None) -> None:
+        self.conversation = SimpleNamespace(
+            id=uuid4(),
+            messages=messages or [],
+            summary=summary,
+        )
+        self.replacements = []
+
+    async def create(self):
+        return self.conversation
+
+    async def get(self, conversation_id):
+        assert conversation_id == self.conversation.id
+        return self.conversation
+
+    async def replace_context(self, conversation, messages, summary):
+        conversation.messages = [message.model_dump() for message in messages]
+        conversation.summary = summary
+        self.replacements.append((list(messages), summary))
+
+
+class StubGemini:
+    def __init__(self) -> None:
+        self.answer_calls = []
+        self.summary_calls = []
+
+    async def summarize(self, previous_summary, messages):
+        self.summary_calls.append((previous_summary, messages))
+        return "condensed history"
+
+    async def stream_answer(self, artifacts, summary, messages):
+        self.answer_calls.append((artifacts, summary, list(messages)))
+        yield "first "
+        yield "second"
+
+
+@pytest.mark.asyncio
+async def test_empty_sources_uses_broad_knowledge_and_persists_complete_messages() -> None:
+    repository = StubConversationRepository()
+    gemini = StubGemini()
+    service = QuestionService(repository, MemoryStorage(), gemini)
+
+    events = [event async for event in service.answer("What is ESP32?", [], None)]
+
+    assert [event.event for event in events] == ["metadata", "text", "text", "done"]
+    artifacts, summary, sent_messages = gemini.answer_calls[0]
+    assert artifacts == []
+    assert summary is None
+    assert sent_messages == [ConversationMessage(role="user", content="What is ESP32?")]
+    assert repository.conversation.messages[-1] == {
+        "role": "model",
+        "content": "first second",
+    }
+
+
+@pytest.mark.asyncio
+async def test_loads_all_artifacts_for_selected_sources_in_stable_order() -> None:
+    storage = MemoryStorage()
+    await storage.save("knowledge/hackaday/2026-07.txt", b"july")
+    await storage.save("knowledge/hackaday/2026-06.txt", b"june")
+    await storage.save("knowledge/other/2026-07.txt", b"other")
+    gemini = StubGemini()
+    service = QuestionService(StubConversationRepository(), storage, gemini)
+
+    _ = [event async for event in service.answer("Projects?", ["hackaday"], None)]
+
+    assert gemini.answer_calls[0][0] == [b"june", b"july"]
+
+
+@pytest.mark.asyncio
+async def test_omitted_sources_loads_artifacts_from_every_source() -> None:
+    storage = MemoryStorage()
+    await storage.save("knowledge/hackaday/2026-07.txt", b"hackaday")
+    await storage.save("knowledge/other/2026-07.txt", b"other")
+    gemini = StubGemini()
+    service = QuestionService(StubConversationRepository(), storage, gemini)
+
+    _ = [event async for event in service.answer("Projects?", None, None)]
+
+    assert gemini.answer_calls[0][0] == [b"hackaday", b"other"]
+
+
+@pytest.mark.asyncio
+async def test_reports_empty_requested_knowledge_scope_without_calling_gemini() -> None:
+    repository = StubConversationRepository()
+    gemini = StubGemini()
+    service = QuestionService(repository, MemoryStorage(), gemini)
+
+    events = [event async for event in service.answer("Projects?", ["hackaday"], None)]
+
+    assert [event.event for event in events] == ["metadata", "text", "done"]
+    assert events[1].text == (
+        "I cannot answer this based on the current knowledge scope because no reference "
+        "documents were found."
+    )
+    assert gemini.answer_calls == []
+    assert repository.conversation.messages[-1] == {
+        "role": "model",
+        "content": events[1].text,
+    }
+
+
+@pytest.mark.asyncio
+async def test_summarizes_old_messages_and_keeps_latest_six() -> None:
+    existing = [
+        ConversationMessage(
+            role="user" if index % 2 == 0 else "model",
+            content=f"message {index}",
+        ).model_dump()
+        for index in range(19)
+    ]
+    repository = StubConversationRepository(existing, summary="previous summary")
+    gemini = StubGemini()
+    service = QuestionService(repository, MemoryStorage(), gemini)
+
+    _ = [event async for event in service.answer("new question", [], repository.conversation.id)]
+
+    previous_summary, summarized = gemini.summary_calls[0]
+    assert previous_summary == "previous summary"
+    assert len(summarized) == 14
+    _, summary, sent_messages = gemini.answer_calls[0]
+    assert summary == "condensed history"
+    assert len(sent_messages) == 6
+    assert sent_messages[-1].content == "new question"
+
+
+@pytest.mark.asyncio
+async def test_does_not_persist_partial_assistant_answer() -> None:
+    class FailingGemini(StubGemini):
+        async def stream_answer(self, artifacts, summary, messages):
+            yield "partial"
+            raise RuntimeError("generation failed")
+
+    repository = StubConversationRepository()
+    service = QuestionService(repository, MemoryStorage(), FailingGemini())
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        _ = [event async for event in service.answer("question", [], None)]
+
+    assert repository.conversation.messages == [{"role": "user", "content": "question"}]
+
+
+@pytest.mark.asyncio
+async def test_uses_complete_history_when_summarization_fails() -> None:
+    class SummaryFailingGemini(StubGemini):
+        async def summarize(self, previous_summary, messages):
+            raise RuntimeError("summary failed")
+
+    existing = [
+        ConversationMessage(role="user", content=f"message {index}").model_dump()
+        for index in range(19)
+    ]
+    repository = StubConversationRepository(existing)
+    gemini = SummaryFailingGemini()
+    service = QuestionService(repository, MemoryStorage(), gemini)
+
+    _ = [event async for event in service.answer("new question", [], None)]
+
+    assert len(gemini.answer_calls[0][2]) == 20
+
+
+@pytest.mark.asyncio
+async def test_closing_stream_does_not_persist_partial_assistant_answer() -> None:
+    repository = StubConversationRepository()
+    service = QuestionService(repository, MemoryStorage(), StubGemini())
+    stream = service.answer("question", [], None)
+
+    assert (await anext(stream)).event == "metadata"
+    assert (await anext(stream)).event == "text"
+    await stream.aclose()
+
+    assert repository.conversation.messages == [{"role": "user", "content": "question"}]

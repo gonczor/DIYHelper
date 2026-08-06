@@ -16,6 +16,7 @@ router = APIRouter(
 
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(task_id: UUID, request: Request) -> TaskResponse:
+    """Return the current status, progress details, and result of a persisted task."""
     container: AsyncContainer = request.app.state.container
     async with container() as scope:
         repository = await scope.get(TaskRepository)

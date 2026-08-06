@@ -2,19 +2,22 @@ from collections.abc import AsyncIterable
 
 import httpx
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
+from google import genai
 from sqlalchemy.ext.asyncio import AsyncSession
-from structlog.typing import FilteringBoundLogger
 
 from app.db import Database
 from app.knowledge_ingestion.service import KnowledgeIngestionService
 from app.knowledge_ingestion.sources.base import KnowledgeSource
 from app.knowledge_ingestion.sources.hackaday import HackadaySource
 from app.knowledge_ingestion.task_handler import KnowledgeIngestionTaskHandler
+from app.questions.gemini import GeminiGateway, GeminiGatewayProtocol
+from app.questions.repository import ConversationRepository
+from app.questions.service import QuestionService
 from app.settings import Settings
 from app.storage.base import Storage
 from app.storage.gcs import GCSStorage
 from app.storage.local import LocalStorage
-from app.tasks.executor import TaskExecutor, get_task_logger
+from app.tasks.executor import TaskExecutor
 from app.tasks.handlers import TaskHandler
 from app.tasks.repository import TaskRepository
 
@@ -25,11 +28,13 @@ class ApplicationProvider(Provider):
         settings: Settings,
         storage: Storage | None = None,
         sources: dict[str, KnowledgeSource] | None = None,
+        gemini_client: genai.Client | None = None,
     ) -> None:
         super().__init__()
         self._settings = settings
         self._storage = storage
         self._sources = sources
+        self._gemini_client = gemini_client
 
     @provide(scope=Scope.APP)
     def settings(self) -> Settings:
@@ -64,6 +69,20 @@ class ApplicationProvider(Provider):
         ) as client:
             yield client
 
+    @provide(scope=Scope.APP)
+    async def gemini_client(self, settings: Settings) -> AsyncIterable[genai.Client]:
+        client = self._gemini_client
+        if client is None:
+            if settings.gemini_api_key is None:
+                raise RuntimeError("GEMINI_API_KEY is required to answer questions")
+            client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
+        yield client
+        await client.aio.aclose()
+
+    @provide(scope=Scope.APP)
+    def gemini_gateway(self, client: genai.Client) -> GeminiGatewayProtocol:
+        return GeminiGateway(client)
+
     @provide(scope=Scope.REQUEST)
     def sources(self, client: httpx.AsyncClient, settings: Settings) -> dict[str, KnowledgeSource]:
         if self._sources is not None:
@@ -79,11 +98,9 @@ class ApplicationProvider(Provider):
     def task_handlers(self, ingestion: KnowledgeIngestionTaskHandler) -> dict[str, TaskHandler]:
         return {"knowledge_ingestion": ingestion}
 
-    @provide(scope=Scope.APP)
-    def task_logger(self) -> FilteringBoundLogger:
-        return get_task_logger()
-
     task_repository = provide(TaskRepository, scope=Scope.REQUEST)
+    conversation_repository = provide(ConversationRepository, scope=Scope.REQUEST)
+    question_service = provide(QuestionService, scope=Scope.REQUEST)
     ingestion_service = provide(KnowledgeIngestionService, scope=Scope.REQUEST)
     ingestion_task_handler = provide(KnowledgeIngestionTaskHandler, scope=Scope.REQUEST)
     task_executor = provide(TaskExecutor, scope=Scope.REQUEST)
@@ -94,5 +111,6 @@ def create_container(
     *,
     storage: Storage | None = None,
     sources: dict[str, KnowledgeSource] | None = None,
+    gemini_client: genai.Client | None = None,
 ) -> AsyncContainer:
-    return make_async_container(ApplicationProvider(settings, storage, sources))
+    return make_async_container(ApplicationProvider(settings, storage, sources, gemini_client))

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 import httpx
 import pytest
@@ -76,6 +77,8 @@ async def test_create_task_runs_ingestion_and_persists_result(clean_database: st
 
     assert persisted_task is not None
     assert persisted_task.status is TaskStatus.SUCCEEDED
+    assert persisted_task.request_id is not None
+    UUID(persisted_task.request_id)
     assert persisted_task.details == {
         "articles_discovered": 1,
         "articles_parsed": 1,

@@ -1,24 +1,30 @@
-from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
 
 from app.tasks.executor import TaskExecutor
+from app.tasks.repository import TaskRepository
 from app.tasks.types import TaskStatus
 
 
-class StubRepository:
-    def __init__(self, task_type: str = "example") -> None:
+class StubRepository(TaskRepository):
+    def __init__(self, task_type: str = "example", request_id: str | None = "request-123") -> None:
         self.status = TaskStatus.PENDING
         self.result = None
         self.error = None
         self.task_type = task_type
+        self.request_id = request_id
 
     async def get(self, task_id):
         return type(
             "Task",
             (),
-            {"id": task_id, "type": self.task_type, "parameters": {"value": "input"}},
+            {
+                "id": task_id,
+                "type": self.task_type,
+                "parameters": {"value": "input"},
+                "request_id": self.request_id,
+            },
         )()
 
     async def mark_running(self, task_id):
@@ -30,6 +36,9 @@ class StubRepository:
 
     async def update_details(self, task_id, details):
         self.details = {**getattr(self, "details", {}), **details}
+
+    async def set_request_id(self, task_id, request_id):
+        self.request_id = request_id
 
     async def mark_failed(self, task_id, error):
         self.status = TaskStatus.FAILED
@@ -43,27 +52,26 @@ class SuccessfulHandler:
         return {"artifact_uri": "file:///x"}
 
 
-def async_logger() -> Mock:
-    bound_logger = Mock()
-    bound_logger.ainfo = AsyncMock()
-    bound_logger.aexception = AsyncMock()
-    logger = Mock()
-    logger.bind.return_value = bound_logger
-    return logger
-
-
 @pytest.mark.asyncio
 async def test_executor_dispatches_handler_and_records_success() -> None:
     repository = StubRepository()
-    logger = async_logger()
-    executor = TaskExecutor(repository, {"example": SuccessfulHandler()}, logger)
+    executor = TaskExecutor(repository, {"example": SuccessfulHandler()})
 
     await executor.execute(uuid4())
 
     assert repository.status is TaskStatus.SUCCEEDED
     assert repository.result == {"artifact_uri": "file:///x"}
     assert repository.details == {"completed": 1, "total": 2}
-    logger.bind.return_value.ainfo.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_executor_generates_and_persists_request_id_when_missing() -> None:
+    repository = StubRepository(request_id=None)
+    executor = TaskExecutor(repository, {"example": SuccessfulHandler()})
+
+    await executor.execute(uuid4())
+
+    assert repository.request_id is not None
 
 
 class FailingHandler:
@@ -74,20 +82,18 @@ class FailingHandler:
 @pytest.mark.asyncio
 async def test_executor_records_failure_without_raising() -> None:
     repository = StubRepository()
-    logger = async_logger()
-    executor = TaskExecutor(repository, {"example": FailingHandler()}, logger)
+    executor = TaskExecutor(repository, {"example": FailingHandler()})
 
     await executor.execute(uuid4())
 
     assert repository.status is TaskStatus.FAILED
     assert repository.error == {"type": "RuntimeError", "message": "processing failed"}
-    logger.bind.return_value.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_executor_fails_unknown_task_type() -> None:
     repository = StubRepository(task_type="unknown")
-    executor = TaskExecutor(repository, {}, async_logger())
+    executor = TaskExecutor(repository, {})
 
     await executor.execute(uuid4())
 

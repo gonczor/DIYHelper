@@ -1,0 +1,111 @@
+import json
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock, Mock
+from uuid import UUID
+
+import httpx
+import pytest
+from google import genai
+from sqlalchemy import select
+
+from app.db import Database
+from app.main import create_app
+from app.questions.models import Conversation
+from app.settings import Settings
+from app.storage.memory import MemoryStorage
+
+
+async def gemini_chunks():
+    for text in ("An ESP32 ", "is a microcontroller."):
+        yield SimpleNamespace(text=text)
+
+
+@pytest.mark.asyncio
+async def test_question_stream_calls_gemini_and_persists_conversation(
+    clean_database: str,
+) -> None:
+    gemini_client = Mock()
+    gemini_client.aio.models.generate_content_stream = AsyncMock(return_value=gemini_chunks())
+    gemini_client.aio.aclose = AsyncMock()
+    settings = Settings(
+        _env_file=None,
+        auth_header="integration-secret",
+        db_url=clean_database,
+    )
+    app = create_app(
+        settings,
+        storage=MemoryStorage(),
+        gemini_client=cast(genai.Client, gemini_client),
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/questions",
+                headers={"X-Auth-Token": "integration-secret"},
+                json={
+                    "question": "What is an ESP32?",
+                    "conversation_id": None,
+                    "sources": [],
+                },
+            )
+            unauthorized = await client.post(
+                "/questions",
+                json={"question": "What is an ESP32?", "sources": []},
+            )
+
+    assert response.status_code == 200
+    assert unauthorized.status_code == 401
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: metadata" in response.text
+    metadata_line = next(line for line in response.text.splitlines() if line.startswith("data: "))
+    conversation_id = json.loads(metadata_line.removeprefix("data: "))["conversation_id"]
+    UUID(conversation_id)
+    assert '"text":"An ESP32 "' in response.text
+    assert "event: done" in response.text
+    gemini_client.aio.models.generate_content_stream.assert_awaited_once()
+
+    database = Database(clean_database)
+    async with database.sessions() as session:
+        conversation = await session.scalar(select(Conversation))
+    await database.close()
+
+    assert conversation is not None
+    assert conversation.messages == [
+        {"role": "user", "content": "What is an ESP32?"},
+        {"role": "model", "content": "An ESP32 is a microcontroller."},
+    ]
+    gemini_client.aio.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_question_without_conversation_id_returns_a_new_id(clean_database: str) -> None:
+    gemini_client = Mock()
+    gemini_client.aio.models.generate_content_stream = AsyncMock(return_value=gemini_chunks())
+    gemini_client.aio.aclose = AsyncMock()
+    app = create_app(
+        Settings(
+            _env_file=None,
+            auth_header="integration-secret",
+            db_url=clean_database,
+        ),
+        storage=MemoryStorage(),
+        gemini_client=cast(genai.Client, gemini_client),
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/questions",
+                headers={"X-Auth-Token": "integration-secret"},
+                json={"question": "What is an ESP32?"},
+            )
+
+    metadata_line = next(line for line in response.text.splitlines() if line.startswith("data: "))
+    conversation_id = json.loads(metadata_line.removeprefix("data: "))["conversation_id"]
+    UUID(conversation_id)

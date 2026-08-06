@@ -2,8 +2,10 @@ import os
 import tempfile
 from pathlib import Path, PurePosixPath
 
+from app.storage.base import Storage
 
-class LocalStorage:
+
+class LocalStorage(Storage):
     def __init__(self, root: Path) -> None:
         self._root = root.resolve()
 
@@ -22,6 +24,25 @@ class LocalStorage:
         destination = self._root.joinpath(*relative.parts)
         self._write_atomically(destination, content)
         return destination.as_uri()
+
+    async def load(self, path: str) -> bytes:
+        return self._resolve(path).read_bytes()
+
+    async def list_items(self, prefix: str) -> list[str]:
+        directory = self._resolve(prefix)
+        if not directory.exists():
+            return []
+        return sorted(
+            path.relative_to(self._root).as_posix()
+            for path in directory.rglob("*")
+            if path.is_file()
+        )
+
+    def _resolve(self, path: str) -> Path:
+        relative = PurePosixPath(path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("path must be a relative storage path")
+        return self._root.joinpath(*relative.parts)
 
     @staticmethod
     def _write_atomically(destination: Path, content: bytes) -> None:

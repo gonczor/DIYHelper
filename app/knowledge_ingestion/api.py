@@ -20,6 +20,7 @@ async def create_ingestion_task(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> TaskResponse:
+    """Start a monthly knowledge ingestion task and return its persisted task record."""
     container: AsyncContainer = request.app.state.container
     target_month = payload.resolved_target_month()
     parameters = {"source": payload.source, "target_month": target_month}
@@ -31,7 +32,9 @@ async def create_ingestion_task(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"an active {payload.source} task already exists for {target_month}",
             )
-        task = await repository.create("knowledge_ingestion", parameters)
+        task = await repository.create(
+            "knowledge_ingestion", parameters, request_id=request.state.request_id
+        )
 
     scheduler = FastAPIBackgroundTaskScheduler(background_tasks, container)
     await scheduler.schedule(task.id)

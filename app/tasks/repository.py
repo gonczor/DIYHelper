@@ -25,8 +25,18 @@ class TaskRepository:
         ]
         return await self._session.scalar(select(Task).where(*conditions))
 
-    async def create(self, task_type: str, parameters: dict[str, Any]) -> Task:
-        task = Task(type=task_type, status=TaskStatus.PENDING, parameters=parameters)
+    async def create(
+        self,
+        task_type: str,
+        parameters: dict[str, Any],
+        request_id: str | None = None,
+    ) -> Task:
+        task = Task(
+            type=task_type,
+            status=TaskStatus.PENDING,
+            parameters=parameters,
+            request_id=request_id,
+        )
         self._session.add(task)
         await self._session.commit()
         await self._session.refresh(task)
@@ -47,6 +57,11 @@ class TaskRepository:
     async def update_details(self, task_id: UUID, details: dict[str, Any]) -> None:
         task = await self.get(task_id)
         task.details = {**task.details, **details}
+        await self._session.commit()
+
+    async def set_request_id(self, task_id: UUID, request_id: str) -> None:
+        task = await self.get(task_id)
+        task.request_id = request_id
         await self._session.commit()
 
     async def mark_succeeded(self, task_id: UUID, result: dict[str, Any]) -> None:
