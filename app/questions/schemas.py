@@ -4,10 +4,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.knowledge.domain import KnowledgeSourceName
+
 
 class AskQuestionRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4_000)
-    sources: list[str] | None = None
+    sources: list[KnowledgeSourceName] | None = None
     conversation_id: UUID | None = None
 
     @field_validator("question")
@@ -18,14 +20,21 @@ class AskQuestionRequest(BaseModel):
             raise ValueError("question must not be blank")
         return stripped
 
-    @field_validator("sources")
+    @field_validator("sources", mode="before")
     @classmethod
-    def normalize_sources(cls, value: list[str] | None) -> list[str] | None:
+    def normalize_sources(cls, value: object) -> object:
         if value is None:
             return None
-        normalized = list(
-            dict.fromkeys(source.strip().lower() for source in value if source.strip())
-        )
+        if not isinstance(value, list):
+            return value
+        normalized: list[object] = []
+        for source in value:
+            if isinstance(source, str):
+                source = source.strip().lower()
+                if not source:
+                    continue
+            if source not in normalized:
+                normalized.append(source)
         return normalized
 
 

@@ -8,6 +8,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.db import Base
+from app.knowledge import models as knowledge_models  # noqa: F401 - registers database models
 from app.tasks import models  # noqa: F401 - registers database models in metadata
 
 config = context.config

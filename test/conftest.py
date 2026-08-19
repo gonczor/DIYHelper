@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import asyncpg
@@ -10,8 +11,10 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import Base, Database
+from app.knowledge import models as knowledge_models  # noqa: F401 - populate metadata
 from app.questions import models as question_models  # noqa: F401 - populate metadata
 from app.tasks import models  # noqa: F401 - populate metadata for cleanup
 
@@ -87,4 +90,12 @@ async def clean_database(test_database_url: str):
         )
         if table_names:
             await connection.execute(text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))
+    await database.close()
+
+
+@pytest_asyncio.fixture
+async def db_session(clean_database: str) -> AsyncIterator[AsyncSession]:
+    database = Database(clean_database)
+    async with database.sessions() as session:
+        yield session
     await database.close()

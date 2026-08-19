@@ -4,6 +4,7 @@ from typing import Protocol
 from google import genai
 from google.genai import types
 
+from app.knowledge.domain import KnowledgeArticle
 from app.questions.domain import ConversationMessage
 
 MODEL = "gemini-3-flash-preview"
@@ -32,10 +33,12 @@ class GeminiGatewayProtocol(Protocol):
 
     def stream_answer(
         self,
-        artifacts: list[bytes],
+        articles: list[KnowledgeArticle],
         summary: str | None,
         messages: list[ConversationMessage],
     ) -> AsyncIterator[str]: ...
+
+    async def count_tokens(self, content: str) -> int: ...
 
 
 class GeminiGateway(GeminiGatewayProtocol):
@@ -60,13 +63,13 @@ class GeminiGateway(GeminiGatewayProtocol):
 
     async def stream_answer(
         self,
-        artifacts: list[bytes],
+        articles: list[KnowledgeArticle],
         summary: str | None,
         messages: list[ConversationMessage],
     ) -> AsyncIterator[str]:
         contents: list[types.Content] = []
-        if artifacts:
-            references = "\n\n".join(artifact.decode("utf-8") for artifact in artifacts)
+        if articles:
+            references = "\n\n".join(article.as_reference() for article in articles)
             contents.append(
                 types.Content(
                     role="user",
@@ -92,10 +95,16 @@ class GeminiGateway(GeminiGatewayProtocol):
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=(
-                    RESTRICTED_KNOWLEDGE_INSTRUCTION if artifacts else BROAD_KNOWLEDGE_INSTRUCTION
+                    RESTRICTED_KNOWLEDGE_INSTRUCTION if articles else BROAD_KNOWLEDGE_INSTRUCTION
                 )
             ),
         )
         async for chunk in stream:
             if chunk.text:
                 yield chunk.text
+
+    async def count_tokens(self, content: str) -> int:
+        response = await self._client.aio.models.count_tokens(model=MODEL, contents=content)
+        if response.total_tokens is None:
+            raise RuntimeError("Gemini returned no token count")
+        return response.total_tokens

@@ -1,15 +1,6 @@
-from datetime import datetime
-
 from pydantic import BaseModel
 
-
-class KnowledgeDocument(BaseModel):
-    source: str
-    source_id: str
-    title: str
-    url: str
-    content: str
-    published_at: datetime | None = None
+from app.knowledge.domain import KnowledgeDocument
 
 
 class CollectionResult(BaseModel):

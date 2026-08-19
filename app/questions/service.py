@@ -3,10 +3,11 @@ from uuid import UUID
 
 import structlog
 
+from app.knowledge.domain import KnowledgeSourceName
+from app.knowledge.service import KnowledgeSelectionService
 from app.questions.domain import ConversationMessage, QuestionEvent
 from app.questions.gemini import GeminiGatewayProtocol
 from app.questions.repository import ConversationRepository
-from app.storage.base import Storage
 
 SUMMARY_THRESHOLD = 20
 RECENT_MESSAGES_TO_KEEP = 6
@@ -22,17 +23,17 @@ class QuestionService:
     def __init__(
         self,
         repository: ConversationRepository,
-        storage: Storage,
+        knowledge: KnowledgeSelectionService,
         gemini: GeminiGatewayProtocol,
     ) -> None:
         self._repository: ConversationRepository = repository
-        self._storage: Storage = storage
+        self._knowledge = knowledge
         self._gemini: GeminiGatewayProtocol = gemini
 
     async def answer(
         self,
         question: str,
-        sources: list[str] | None,
+        sources: list[KnowledgeSourceName] | None,
         conversation_id: UUID | None,
     ) -> AsyncIterator[QuestionEvent]:
         conversation = (
@@ -53,34 +54,27 @@ class QuestionService:
                 messages = recent
                 await self._repository.replace_context(conversation, messages, summary)
             except Exception:
-                await logger.aexception(
+                logger.exception(
                     "conversation summarization failed",
                     conversation_id=str(conversation.id),
                 )
 
-        artifacts = await self._load_artifacts(sources)
+        articles = (
+            []
+            if sources == []
+            else await self._knowledge.select(question, sources, conversation.id)
+        )
         yield QuestionEvent(event="metadata", conversation_id=conversation.id)
 
         answer = ""
-        if sources != [] and not artifacts:
+        if sources != [] and not articles:
             answer = EMPTY_KNOWLEDGE_SCOPE_RESPONSE
             yield QuestionEvent(event="text", text=answer)
         else:
-            async for text in self._gemini.stream_answer(artifacts, summary, messages):
+            async for text in self._gemini.stream_answer(articles, summary, messages):
                 answer += text
                 yield QuestionEvent(event="text", text=text)
 
         messages.append(ConversationMessage(role="model", content=answer))
         await self._repository.replace_context(conversation, messages, summary)
         yield QuestionEvent(event="done", conversation_id=conversation.id)
-
-    async def _load_artifacts(self, sources: list[str] | None) -> list[bytes]:
-        if sources == []:
-            return []
-        if sources is None:
-            paths = await self._storage.list_items("knowledge/")
-        else:
-            paths = []
-            for source in sources:
-                paths.extend(await self._storage.list_items(f"knowledge/{source}/"))
-        return [await self._storage.load(path) for path in sorted(set(paths))]

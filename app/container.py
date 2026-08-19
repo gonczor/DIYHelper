@@ -6,6 +6,9 @@ from google import genai
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import Database
+from app.knowledge.domain import KnowledgeSourceName
+from app.knowledge.repository import KnowledgeRepository
+from app.knowledge.service import KnowledgeSelectionService, TokenCounter
 from app.knowledge_ingestion.service import KnowledgeIngestionService
 from app.knowledge_ingestion.sources.base import KnowledgeSource
 from app.knowledge_ingestion.sources.hackaday import HackadaySource
@@ -27,7 +30,7 @@ class ApplicationProvider(Provider):
         self,
         settings: Settings,
         storage: Storage | None = None,
-        sources: dict[str, KnowledgeSource] | None = None,
+        sources: dict[KnowledgeSourceName, KnowledgeSource] | None = None,
         gemini_client: genai.Client | None = None,
     ) -> None:
         super().__init__()
@@ -84,11 +87,32 @@ class ApplicationProvider(Provider):
         return GeminiGateway(client)
 
     @provide(scope=Scope.REQUEST)
-    def sources(self, client: httpx.AsyncClient, settings: Settings) -> dict[str, KnowledgeSource]:
+    def token_counter(self, gemini: GeminiGatewayProtocol) -> TokenCounter:
+        return gemini
+
+    @provide(scope=Scope.REQUEST)
+    def knowledge_selection_service(
+        self,
+        repository: KnowledgeRepository,
+        token_counter: TokenCounter,
+        settings: Settings,
+    ) -> KnowledgeSelectionService:
+        return KnowledgeSelectionService(
+            repository,
+            token_counter,
+            candidate_limit=settings.knowledge_search_candidate_limit,
+            article_limit=settings.knowledge_article_limit,
+            token_budget=settings.knowledge_token_budget,
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def sources(
+        self, client: httpx.AsyncClient, settings: Settings
+    ) -> dict[KnowledgeSourceName, KnowledgeSource]:
         if self._sources is not None:
             return self._sources
         return {
-            "hackaday": HackadaySource(
+            KnowledgeSourceName.HACKADAY: HackadaySource(
                 client,
                 request_delay_seconds=settings.knowledge_request_delay_seconds,
             )
@@ -100,6 +124,7 @@ class ApplicationProvider(Provider):
 
     task_repository = provide(TaskRepository, scope=Scope.REQUEST)
     conversation_repository = provide(ConversationRepository, scope=Scope.REQUEST)
+    knowledge_repository = provide(KnowledgeRepository, scope=Scope.REQUEST)
     question_service = provide(QuestionService, scope=Scope.REQUEST)
     ingestion_service = provide(KnowledgeIngestionService, scope=Scope.REQUEST)
     ingestion_task_handler = provide(KnowledgeIngestionTaskHandler, scope=Scope.REQUEST)
@@ -110,7 +135,7 @@ def create_container(
     settings: Settings,
     *,
     storage: Storage | None = None,
-    sources: dict[str, KnowledgeSource] | None = None,
+    sources: dict[KnowledgeSourceName, KnowledgeSource] | None = None,
     gemini_client: genai.Client | None = None,
 ) -> AsyncContainer:
     return make_async_container(ApplicationProvider(settings, storage, sources, gemini_client))

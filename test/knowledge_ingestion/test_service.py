@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.knowledge.domain import KnowledgeSourceName
 from app.knowledge_ingestion.domain import CollectionResult, KnowledgeDocument
 from app.knowledge_ingestion.service import KnowledgeIngestionService, _month_bounds
 
@@ -15,8 +16,7 @@ class StubSource:
         return CollectionResult(
             documents=[
                 KnowledgeDocument(
-                    source="hackaday",
-                    source_id="https://hackaday.com/example/",
+                    source=KnowledgeSourceName.HACKADAY,
                     title="Example hack",
                     url="https://hackaday.com/example/",
                     content="Useful article text.",
@@ -37,12 +37,23 @@ class MemoryStorage:
         return f"memory://{path}"
 
 
+class StubKnowledgeRepository:
+    def __init__(self) -> None:
+        self.documents = []
+
+    async def upsert_documents(self, documents) -> None:
+        self.documents.extend(documents)
+
+
 @pytest.mark.asyncio
 async def test_ingest_saves_a_monthly_artifact() -> None:
     storage = MemoryStorage()
-    service = KnowledgeIngestionService({"hackaday": StubSource()}, storage)
+    repository = StubKnowledgeRepository()
+    service = KnowledgeIngestionService(
+        {KnowledgeSourceName.HACKADAY: StubSource()}, storage, repository
+    )
 
-    result = await service.ingest("hackaday", "2026-07")
+    result = await service.ingest(KnowledgeSourceName.HACKADAY, "2026-07")
 
     assert result.artifact_uri == "memory://knowledge/hackaday/2026-07.txt"
     assert result.articles_saved == 1
@@ -52,6 +63,7 @@ async def test_ingest_saves_a_monthly_artifact() -> None:
     assert b"title: Example hack" in content
     assert b"Useful article text." in content
     assert content_type == "text/plain; charset=utf-8"
+    assert repository.documents[0].url == "https://hackaday.com/example/"
 
 
 def test_month_requires_zero_padded_format() -> None:

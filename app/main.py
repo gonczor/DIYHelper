@@ -13,6 +13,7 @@ from google import genai
 
 from app.container import create_container
 from app.error_handlers import register_error_handlers
+from app.knowledge.domain import KnowledgeSourceName
 from app.knowledge_ingestion.api import router as knowledge_ingestion_router
 from app.knowledge_ingestion.sources.base import KnowledgeSource
 from app.observability.config import configure_logging
@@ -28,7 +29,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     storage: Storage | None = None,
-    sources: dict[str, KnowledgeSource] | None = None,
+    sources: dict[KnowledgeSourceName, KnowledgeSource] | None = None,
     gemini_client: genai.Client | None = None,
 ) -> FastAPI:
     configure_logging()

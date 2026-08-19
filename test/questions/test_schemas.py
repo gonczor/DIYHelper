@@ -1,3 +1,7 @@
+import pytest
+from pydantic import ValidationError
+
+from app.knowledge.domain import KnowledgeSourceName
 from app.questions.schemas import AskQuestionRequest
 
 
@@ -16,4 +20,9 @@ def test_empty_sources_remains_empty_to_select_broad_knowledge() -> None:
 def test_sources_are_normalized_and_deduplicated() -> None:
     request = AskQuestionRequest(question="question", sources=[" Hackaday ", "hackaday"])
 
-    assert request.sources == ["hackaday"]
+    assert request.sources == [KnowledgeSourceName.HACKADAY]
+
+
+def test_rejects_unknown_source() -> None:
+    with pytest.raises(ValidationError):
+        AskQuestionRequest(question="question", sources=["unknown"])

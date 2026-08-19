@@ -1,10 +1,12 @@
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 from google import genai
 
+from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName
 from app.questions.domain import ConversationMessage
 from app.questions.gemini import (
     BROAD_KNOWLEDGE_INSTRUCTION,
@@ -20,6 +22,16 @@ async def chunks():
         yield SimpleNamespace(text=text)
 
 
+def article() -> KnowledgeArticle:
+    return KnowledgeArticle(
+        id=uuid4(),
+        source=KnowledgeSourceName.HACKADAY,
+        url="https://example.test/article",
+        title="Source document",
+        content="source document",
+    )
+
+
 @pytest.mark.asyncio
 async def test_streams_expected_gemini_request() -> None:
     client = Mock()
@@ -29,7 +41,7 @@ async def test_streams_expected_gemini_request() -> None:
     result = [
         text
         async for text in gateway.stream_answer(
-            [b"source document"],
+            [article()],
             "earlier context",
             [ConversationMessage(role="user", content="question")],
         )
@@ -40,7 +52,8 @@ async def test_streams_expected_gemini_request() -> None:
     assert call.kwargs["model"] == MODEL
     assert call.kwargs["config"].system_instruction == RESTRICTED_KNOWLEDGE_INSTRUCTION
     contents = call.kwargs["contents"]
-    assert contents[0].parts[0].text == "Reference documents:\nsource document"
+    assert "Reference documents:\n===== DOCUMENT =====" in contents[0].parts[0].text
+    assert "source document" in contents[0].parts[0].text
     assert contents[1].parts[0].text == "Conversation summary:\nearlier context"
     assert contents[2].role == "user"
     assert contents[2].parts[0].text == "question"
@@ -81,3 +94,15 @@ async def test_requests_expected_conversation_summary() -> None:
     assert call.kwargs["model"] == MODEL
     assert call.kwargs["config"].system_instruction == SUMMARY_INSTRUCTION
     assert call.kwargs["contents"] == "Previous summary:\nold summary\n\nuser: new fact"
+
+
+@pytest.mark.asyncio
+async def test_counts_tokens_with_the_answer_model() -> None:
+    client = Mock()
+    client.aio.models.count_tokens = AsyncMock(return_value=SimpleNamespace(total_tokens=123))
+    gateway = GeminiGateway(cast(genai.Client, client))
+
+    result = await gateway.count_tokens("reference")
+
+    assert result == 123
+    client.aio.models.count_tokens.assert_awaited_once_with(model=MODEL, contents="reference")
