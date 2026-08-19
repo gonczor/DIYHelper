@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db import Database
+from app.knowledge.models import KnowledgeArticleRecord
 from app.knowledge_ingestion.domain import CollectionResult, KnowledgeDocument
 from app.main import create_app
 from app.settings import Settings
@@ -22,7 +23,6 @@ class StubHackadaySource:
             documents=[
                 KnowledgeDocument(
                     source="hackaday",
-                    source_id="recorded-article",
                     title="Recorded article",
                     url="https://hackaday.com/recorded-article/",
                     content="An integration-test article.",
@@ -73,9 +73,12 @@ async def test_create_task_runs_ingestion_and_persists_result(clean_database: st
     database = Database(clean_database)
     async with database.sessions() as session:
         persisted_task = await session.scalar(select(Task).where(Task.id == task_id))
+        article = await session.scalar(select(KnowledgeArticleRecord))
     await database.close()
 
     assert persisted_task is not None
+    assert article is not None
+    assert article.url == "https://hackaday.com/recorded-article/"
     assert persisted_task.status is TaskStatus.SUCCEEDED
     assert persisted_task.request_id is not None
     UUID(persisted_task.request_id)

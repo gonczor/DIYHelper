@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import PositiveInt, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     knowledge_request_delay_seconds: float = 1.0
     knowledge_request_timeout_seconds: float = 30.0
+    knowledge_search_candidate_limit: PositiveInt = 20
+    knowledge_article_limit: PositiveInt = 5
+    knowledge_token_budget: PositiveInt = 50_000
 
     @field_validator("local_storage_root")
     @classmethod

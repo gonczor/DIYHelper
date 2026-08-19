@@ -1,0 +1,1 @@
+"""Persisted and searchable knowledge."""

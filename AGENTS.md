@@ -10,3 +10,5 @@ and the code.
   implemented as private or protected methods.
 - For endpoints provide a short description in the docstring to make it obvious for the user (or 
   frontend engineer) browsing the docs how to use it.
+- When handling a GitHub issue, create and switch to a dedicated branch before implementation. Use
+  the branch name schema `issue/<number>-<short-description>`.

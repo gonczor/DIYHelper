@@ -6,7 +6,8 @@ import httpx
 import structlog
 from bs4 import BeautifulSoup, Tag
 
-from app.knowledge_ingestion.domain import CollectionResult, KnowledgeDocument
+from app.knowledge.domain import KnowledgeDocument
+from app.knowledge_ingestion.domain import CollectionResult
 from app.knowledge_ingestion.sources.base import CollectionProgressCallback, KnowledgeSource
 
 logger = structlog.get_logger(__name__)
@@ -143,7 +144,6 @@ class HackadaySource(KnowledgeSource):
 
         return KnowledgeDocument(
             source="hackaday",
-            source_id=url,
             title=title.get_text(" ", strip=True),
             url=url,
             content=text,

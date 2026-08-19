@@ -61,10 +61,11 @@ The Docker PostgreSQL service must be running before executing `uv run pytest`.
 
 ## Knowledge ingestion
 
-Knowledge is collected in monthly artifacts. A run triggered during August, for example, collects
-articles published in July and saves them as `knowledge/hackaday/2026-07.txt`. A specific month can
-also be requested to rerun a failed or incomplete import. Each invocation creates a task record so
-its status and result can be inspected later.
+Knowledge is collected as complete articles and indexed in PostgreSQL. A run triggered during
+August, for example, collects articles published in July, upserts them by source and URL, and saves
+a transitional snapshot as `knowledge/hackaday/2026-07.txt`. A specific month can also be requested
+to rerun a failed or incomplete import. Each invocation creates a task record so its status and
+result can be inspected later.
 
 Trigger a run with `POST /knowledge-ingestion/tasks` and inspect it with `GET /tasks/{task_id}`.
 Both endpoints require the value of `AUTH_HEADER` in the `X-Auth-Token` request header. The request
@@ -94,6 +95,23 @@ curl --no-buffer http://localhost:8000/questions \
 Conversation messages are stored as one JSON value. At 20 messages, Gemini summarizes older
 context while the latest 6 messages remain verbatim. Set `GEMINI_API_KEY` to use this endpoint. See
 [ADR 0002](docs/architecture/decisions/0002-streamed-questions-and-conversations.md) for limitations.
+
+### Indexed knowledge selection
+
+Ingested articles are stored as complete documents in PostgreSQL and selected with weighted
+full-text search before a question is sent to Gemini. Search is restricted by the requested source
+scope and ranks title matches above content matches. Complete articles are considered in rank order
+and included up to configurable article-count and knowledge-token limits; articles are not split or
+truncated. Token counts are calculated through Gemini when first needed and then cached.
+
+Every retrieval produces a structured log showing the search expression, source scope,
+candidate article URLs and titles, PostgreSQL ranks, token counts, and why each candidate was
+selected or excluded. Article and conversation contents are not logged. Lexical search can still
+miss related terminology or return weak results for broad questions; semantic search, query
+rewriting, and chunking are deferred until real usage demonstrates a need. Use an empty `sources`
+list to explicitly retry with Gemini's general knowledge when indexed knowledge is insufficient.
+
+See [ADR 0003](docs/architecture/decisions/0003-postgresql-article-retrieval.md) for the full design.
 
 ## Task execution
 
@@ -135,6 +153,10 @@ Set `STORAGE_BACKEND` to select the application-wide storage implementation:
   Application Default Credentials are used for authentication.
 
 See `.env.example` for local and production configuration values.
+
+Knowledge artifacts are currently transitional ingestion snapshots. Indexed PostgreSQL articles
+serve question requests, and the storage dependency may be removed after database-backed recovery
+has proved sufficient.
 
 `KNOWLEDGE_REQUEST_DELAY_SECONDS` controls the polite delay between Hackaday requests, while
 `KNOWLEDGE_REQUEST_TIMEOUT_SECONDS` sets the timeout for each request.

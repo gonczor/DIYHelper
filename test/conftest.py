@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from app.db import Base, Database
+from app.knowledge import models as knowledge_models  # noqa: F401 - populate metadata
 from app.questions import models as question_models  # noqa: F401 - populate metadata
 from app.tasks import models  # noqa: F401 - populate metadata for cleanup
 

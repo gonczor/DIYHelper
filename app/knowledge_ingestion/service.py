@@ -2,15 +2,23 @@ import re
 from calendar import monthrange
 from datetime import UTC, datetime
 
-from app.knowledge_ingestion.domain import IngestionResult, KnowledgeDocument
+from app.knowledge.domain import KnowledgeDocument
+from app.knowledge.repository import KnowledgeRepository
+from app.knowledge_ingestion.domain import IngestionResult
 from app.knowledge_ingestion.sources.base import CollectionProgressCallback, KnowledgeSource
 from app.storage.base import Storage
 
 
 class KnowledgeIngestionService:
-    def __init__(self, sources: dict[str, KnowledgeSource], storage: Storage) -> None:
+    def __init__(
+        self,
+        sources: dict[str, KnowledgeSource],
+        storage: Storage,
+        repository: KnowledgeRepository,
+    ) -> None:
         self._sources = sources
         self._storage = storage
+        self._repository = repository
 
     async def ingest(
         self,
@@ -32,6 +40,7 @@ class KnowledgeIngestionService:
         artifact_uri = await self._storage.save(
             path, content, content_type="text/plain; charset=utf-8"
         )
+        await self._repository.upsert_documents(collection.documents)
         return IngestionResult(
             artifact_uri=artifact_uri,
             articles_discovered=collection.discovered,
