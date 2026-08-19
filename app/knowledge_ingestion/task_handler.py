@@ -1,5 +1,6 @@
 from typing import Any
 
+from app.knowledge.domain import KnowledgeSourceName
 from app.knowledge_ingestion.service import KnowledgeIngestionService
 from app.tasks.handlers import TaskProgress
 
@@ -26,7 +27,7 @@ class KnowledgeIngestionTaskHandler:
 
     async def __call__(self, parameters: dict[str, Any], progress: TaskProgress) -> dict[str, Any]:
         result = await self._service.ingest(
-            source=parameters["source"],
+            source=KnowledgeSourceName(parameters["source"]),
             target_month=parameters["target_month"],
             on_progress=CollectionProgressReporter(progress),
         )

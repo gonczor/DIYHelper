@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from google import genai
 
-from app.knowledge.domain import KnowledgeArticle
+from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName
 from app.questions.domain import ConversationMessage
 from app.questions.gemini import (
     BROAD_KNOWLEDGE_INSTRUCTION,
@@ -25,7 +25,7 @@ async def chunks():
 def article() -> KnowledgeArticle:
     return KnowledgeArticle(
         id=uuid4(),
-        source="hackaday",
+        source=KnowledgeSourceName.HACKADAY,
         url="https://example.test/article",
         title="Source document",
         content="source document",

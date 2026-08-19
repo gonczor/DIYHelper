@@ -6,7 +6,7 @@ import httpx
 import structlog
 from bs4 import BeautifulSoup, Tag
 
-from app.knowledge.domain import KnowledgeDocument
+from app.knowledge.domain import KnowledgeDocument, KnowledgeSourceName
 from app.knowledge_ingestion.domain import CollectionResult
 from app.knowledge_ingestion.sources.base import CollectionProgressCallback, KnowledgeSource
 
@@ -143,7 +143,7 @@ class HackadaySource(KnowledgeSource):
                 published_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
         return KnowledgeDocument(
-            source="hackaday",
+            source=KnowledgeSourceName.HACKADAY,
             title=title.get_text(" ", strip=True),
             url=url,
             content=text,

@@ -27,10 +27,10 @@ async def create_ingestion_task(
     """Start a monthly knowledge ingestion task and return its persisted task record."""
     container: AsyncContainer = request.app.state.container
     target_month = payload.resolved_target_month()
-    parameters = {"source": payload.source, "target_month": target_month}
+    parameters = {"source": payload.source.value, "target_month": target_month}
     active = await repository.find_active("knowledge_ingestion", parameters)
     if active is not None:
-        raise ActiveIngestionTaskError(payload.source, target_month)
+        raise ActiveIngestionTaskError(payload.source.value, target_month)
     task = await repository.create(
         "knowledge_ingestion", parameters, request_id=request.state.request_id
     )

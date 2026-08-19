@@ -3,6 +3,7 @@ from uuid import UUID
 
 import structlog
 
+from app.knowledge.domain import KnowledgeSourceName
 from app.knowledge.service import KnowledgeSelectionService
 from app.questions.domain import ConversationMessage, QuestionEvent
 from app.questions.gemini import GeminiGatewayProtocol
@@ -32,7 +33,7 @@ class QuestionService:
     async def answer(
         self,
         question: str,
-        sources: list[str] | None,
+        sources: list[KnowledgeSourceName] | None,
         conversation_id: UUID | None,
     ) -> AsyncIterator[QuestionEvent]:
         conversation = (

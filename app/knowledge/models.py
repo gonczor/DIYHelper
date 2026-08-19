@@ -21,7 +21,7 @@ class KnowledgeArticleRecord(Base):
     )
 
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
-    source: Mapped[str] = mapped_column(String(100), index=True)
+    source: Mapped[str] = mapped_column(String(255), index=True)
     url: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)

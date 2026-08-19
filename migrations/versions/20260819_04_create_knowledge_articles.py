@@ -20,7 +20,7 @@ def upgrade() -> None:
     op.create_table(
         "knowledge_articles",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("source", sa.String(length=100), nullable=False),
+        sa.Column("source", sa.String(length=255), nullable=False),
         sa.Column("url", sa.Text(), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),

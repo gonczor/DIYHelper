@@ -1,13 +1,13 @@
 from datetime import UTC, datetime, timedelta
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.knowledge.domain import KnowledgeSourceName
 from app.knowledge_ingestion.service import _month_bounds
 
 
 class CreateIngestionTaskRequest(BaseModel):
-    source: Literal["hackaday"] = "hackaday"
+    source: KnowledgeSourceName = KnowledgeSourceName.HACKADAY
     target_month: str | None = Field(default=None, examples=["2026-07"])
 
     @field_validator("target_month")

@@ -1,9 +1,9 @@
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
-from structlog.testing import capture_logs
 
-from app.knowledge.domain import KnowledgeArticle, KnowledgeSearchResult, RankedKnowledgeArticle
+from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName, RankedKnowledgeArticle
 from app.knowledge.service import KnowledgeSelectionService
 
 
@@ -11,7 +11,7 @@ def candidate(number: int, rank: float, token_count: int | None = None) -> Ranke
     return RankedKnowledgeArticle(
         article=KnowledgeArticle(
             id=uuid4(),
-            source="hackaday",
+            source=KnowledgeSourceName.HACKADAY,
             url=f"https://example.test/{number}",
             title=f"Article {number}",
             content=f"Content {number}",
@@ -30,10 +30,7 @@ class StubRepository:
 
     async def search(self, query, sources, limit):
         self.search_calls.append((query, sources, limit))
-        return KnowledgeSearchResult(
-            search_expression="'easi' & 'project'",
-            candidates=self.candidates[:limit],
-        )
+        return self.candidates[:limit]
 
     async def set_token_count(self, article_id, token_count):
         self.saved_counts.append((article_id, token_count))
@@ -47,6 +44,14 @@ class StubTokenCounter:
     async def count_tokens(self, content: str) -> int:
         self.calls.append(content)
         return self.counts[content]
+
+
+@pytest.fixture(autouse=True)
+def async_logger(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    logger = Mock()
+    logger.ainfo = AsyncMock()
+    monkeypatch.setattr("app.knowledge.service.logger", logger)
+    return logger
 
 
 @pytest.mark.asyncio
@@ -63,12 +68,12 @@ async def test_selects_ranked_articles_with_lazy_token_counts_and_limits() -> No
         token_budget=100,
     )
 
-    selected = await service.select("easy project", ["hackaday"], uuid4())
+    selected = await service.select("easy project", [KnowledgeSourceName.HACKADAY], uuid4())
 
     assert selected == [candidates[0].article, candidates[1].article]
     assert counter.calls == [first_reference]
     assert repository.saved_counts == [(candidates[0].article.id, 40)]
-    assert repository.search_calls == [("easy project", ["hackaday"], 10)]
+    assert repository.search_calls == [("easy project", [KnowledgeSourceName.HACKADAY], 10)]
 
 
 @pytest.mark.asyncio
@@ -88,30 +93,33 @@ async def test_skips_article_that_exceeds_remaining_budget_and_tries_next() -> N
 
 
 @pytest.mark.asyncio
-async def test_logs_rank_and_selection_without_article_content() -> None:
-    candidates = [candidate(1, 0.9, 25), candidate(2, 0.8, 50)]
+async def test_stops_and_logs_asynchronously_after_reaching_article_limit(
+    async_logger: Mock,
+) -> None:
+    candidates = [candidate(1, 0.9, 25), candidate(2, 0.8)]
+    repository = StubRepository(candidates)
+    counter = StubTokenCounter({candidates[1].article.as_reference(): 50})
     service = KnowledgeSelectionService(
-        StubRepository(candidates),
-        StubTokenCounter({}),
+        repository,
+        counter,
         candidate_limit=10,
         article_limit=1,
         token_budget=100,
     )
     conversation_id = uuid4()
+    await service.select("private question text", [KnowledgeSourceName.HACKADAY], conversation_id)
 
-    with capture_logs() as logs:
-        await service.select("private question text", ["hackaday"], conversation_id)
-
-    event = next(log for log in logs if log["event"] == "knowledge retrieval completed")
-    assert event["conversation_id"] == str(conversation_id)
-    assert event["sources"] == ["hackaday"]
-    assert event["search_expression"] == "'easi' & 'project'"
-    assert event["candidate_limit"] == 10
-    assert event["article_limit"] == 1
-    assert event["token_budget"] == 100
-    assert event["selected_count"] == 1
-    assert event["selected_token_count"] == 25
-    assert event["candidates"] == [
+    async_logger.ainfo.assert_awaited_once()
+    call = async_logger.ainfo.await_args
+    assert call.args == ("knowledge retrieval completed",)
+    assert call.kwargs["conversation_id"] == str(conversation_id)
+    assert call.kwargs["sources"] == [KnowledgeSourceName.HACKADAY]
+    assert call.kwargs["candidate_limit"] == 10
+    assert call.kwargs["article_limit"] == 1
+    assert call.kwargs["token_budget"] == 100
+    assert call.kwargs["selected_count"] == 1
+    assert call.kwargs["selected_token_count"] == 25
+    assert call.kwargs["candidates"] == [
         {
             "title": "Article 1",
             "url": "https://example.test/1",
@@ -120,16 +128,8 @@ async def test_logs_rank_and_selection_without_article_content() -> None:
             "token_count_cached": True,
             "selected": True,
             "exclusion_reason": None,
-        },
-        {
-            "title": "Article 2",
-            "url": "https://example.test/2",
-            "rank": 0.8,
-            "token_count": 50,
-            "token_count_cached": True,
-            "selected": False,
-            "exclusion_reason": "article_limit",
-        },
+        }
     ]
-    assert "private question text" not in str(event)
-    assert "Content 1" not in str(event)
+    assert counter.calls == []
+    assert "private question text" not in str(call.kwargs)
+    assert "Content 1" not in str(call.kwargs)

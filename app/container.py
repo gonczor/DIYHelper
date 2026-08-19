@@ -6,6 +6,7 @@ from google import genai
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import Database
+from app.knowledge.domain import KnowledgeSourceName
 from app.knowledge.repository import KnowledgeRepository
 from app.knowledge.service import KnowledgeSelectionService, TokenCounter
 from app.knowledge_ingestion.service import KnowledgeIngestionService
@@ -29,7 +30,7 @@ class ApplicationProvider(Provider):
         self,
         settings: Settings,
         storage: Storage | None = None,
-        sources: dict[str, KnowledgeSource] | None = None,
+        sources: dict[KnowledgeSourceName, KnowledgeSource] | None = None,
         gemini_client: genai.Client | None = None,
     ) -> None:
         super().__init__()
@@ -105,11 +106,13 @@ class ApplicationProvider(Provider):
         )
 
     @provide(scope=Scope.REQUEST)
-    def sources(self, client: httpx.AsyncClient, settings: Settings) -> dict[str, KnowledgeSource]:
+    def sources(
+        self, client: httpx.AsyncClient, settings: Settings
+    ) -> dict[KnowledgeSourceName, KnowledgeSource]:
         if self._sources is not None:
             return self._sources
         return {
-            "hackaday": HackadaySource(
+            KnowledgeSourceName.HACKADAY: HackadaySource(
                 client,
                 request_delay_seconds=settings.knowledge_request_delay_seconds,
             )
@@ -132,7 +135,7 @@ def create_container(
     settings: Settings,
     *,
     storage: Storage | None = None,
-    sources: dict[str, KnowledgeSource] | None = None,
+    sources: dict[KnowledgeSourceName, KnowledgeSource] | None = None,
     gemini_client: genai.Client | None = None,
 ) -> AsyncContainer:
     return make_async_container(ApplicationProvider(settings, storage, sources, gemini_client))

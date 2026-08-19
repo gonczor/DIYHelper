@@ -1,14 +1,13 @@
 from uuid import UUID
 
-from sqlalchemy import String, case, cast, func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.elements import ColumnElement
 
 from app.knowledge.domain import (
     KnowledgeArticle,
     KnowledgeDocument,
-    KnowledgeSearchResult,
+    KnowledgeSourceName,
     RankedKnowledgeArticle,
 )
 from app.knowledge.models import KnowledgeArticleRecord
@@ -46,13 +45,20 @@ class KnowledgeRepository:
     async def search(
         self,
         query: str,
-        sources: list[str] | None,
+        sources: list[KnowledgeSourceName] | None,
         limit: int,
-    ) -> KnowledgeSearchResult:
+    ) -> list[RankedKnowledgeArticle]:
+        """Return complete articles ranked by relevance to a user's query.
+
+        ``websearch_to_tsquery`` converts ordinary user text into PostgreSQL's safe full-text query
+        representation. ``ts_rank_cd`` scores matching rows against the weighted vector generated
+        from each title and body. Optional source filtering is applied before the result limit, and
+        publication time plus URL provide deterministic tie-breaking for equal ranks.
+        """
         search_query = func.websearch_to_tsquery("english", query)
         rank = func.ts_rank_cd(KnowledgeArticleRecord.search_vector, search_query).label("rank")
         statement = (
-            select(KnowledgeArticleRecord, rank, cast(search_query, String).label("expression"))
+            select(KnowledgeArticleRecord, rank)
             .where(KnowledgeArticleRecord.search_vector.op("@@")(search_query))
             .order_by(
                 rank.desc(),
@@ -64,17 +70,13 @@ class KnowledgeRepository:
         if sources is not None:
             statement = statement.where(KnowledgeArticleRecord.source.in_(sources))
         rows = (await self._session.execute(statement)).all()
-        expression = rows[0].expression if rows else await self._search_expression(search_query)
-        return KnowledgeSearchResult(
-            search_expression=expression,
-            candidates=[
-                RankedKnowledgeArticle(
-                    article=self._to_domain(row.KnowledgeArticleRecord),
-                    rank=float(row.rank),
-                )
-                for row in rows
-            ],
-        )
+        return [
+            RankedKnowledgeArticle(
+                article=self._to_domain(row.KnowledgeArticleRecord),
+                rank=float(row.rank),
+            )
+            for row in rows
+        ]
 
     async def set_token_count(self, article_id: UUID, token_count: int) -> None:
         article = await self._session.get(KnowledgeArticleRecord, article_id)
@@ -83,15 +85,11 @@ class KnowledgeRepository:
         article.token_count = token_count
         await self._session.commit()
 
-    async def _search_expression(self, search_query: ColumnElement[str]) -> str:
-        expression = await self._session.scalar(select(cast(search_query, String)))
-        return expression or ""
-
     @staticmethod
     def _to_domain(record: KnowledgeArticleRecord) -> KnowledgeArticle:
         return KnowledgeArticle(
             id=record.id,
-            source=record.source,
+            source=KnowledgeSourceName(record.source),
             url=record.url,
             title=record.title,
             content=record.content,

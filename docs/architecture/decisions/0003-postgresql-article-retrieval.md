@@ -47,10 +47,11 @@ to article content. The application may count the assembled request before gener
 guard and remove the lowest-ranked article until the request fits the configured budget.
 
 Each retrieval emits one structured diagnostic event correlated with the request and conversation.
-It records the source filter, PostgreSQL search expression, configured limits, retrieval duration,
-and every candidate's title, URL, rank, token count, token-cache status, selection result, and
-exclusion reason. It also records the final selected article count and token total. Article content,
-conversation text, authentication values, and other prompt contents are not logged.
+It records the source filter, configured limits, retrieval duration, and every evaluated
+candidate's title, URL, rank, token count, token-cache status, selection result, and exclusion
+reason. Evaluation stops as soon as the article-count limit is reached. The event also records the
+final selected article count and token total. Article content, conversation text, authentication
+values, and other prompt contents are not logged.
 
 Monthly local or GCS artifacts temporarily remain ingestion snapshots for diagnostics and recovery,
 but the question path no longer loads them. PostgreSQL and structured retrieval logs provide the
@@ -70,6 +71,11 @@ call. Concurrent requests may calculate the same missing count, but their update
 do not require locking. Changing the active model can make cached counts inaccurate; because the
 project deliberately has one model, invalidating all cached counts is an operational step when that
 model changes.
+
+Repository operations currently commit their own changes, and writing an artifact plus indexing its
+articles is not one atomic operation across storage and PostgreSQL. Transaction ownership,
+cross-store recovery, and ingestion idempotency need a separate decision before artifact storage is
+removed.
 
 PostgreSQL full-text search is lexical and may miss semantically related articles that use different
 terminology. Broad prompts such as requests for an easy project may also rank irrelevant articles

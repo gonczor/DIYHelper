@@ -1,22 +1,33 @@
 from datetime import datetime
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel
 
 
+class KnowledgeSourceName(StrEnum):
+    HACKADAY = "hackaday"
+
+
 class KnowledgeDocument(BaseModel):
-    source: str
+    source: KnowledgeSourceName
     title: str
     url: str
     content: str
     published_at: datetime | None = None
 
 
-class KnowledgeArticle(KnowledgeDocument):
+class KnowledgeArticle(BaseModel):
     id: UUID
+    source: KnowledgeSourceName
+    title: str
+    url: str
+    content: str
+    published_at: datetime | None = None
     token_count: int | None = None
 
     def as_reference(self) -> str:
+        """Format a complete article as untrusted reference context for the model prompt."""
         published_at = self.published_at.isoformat() if self.published_at else ""
         return "\n".join(
             (
@@ -34,8 +45,3 @@ class KnowledgeArticle(KnowledgeDocument):
 class RankedKnowledgeArticle(BaseModel):
     article: KnowledgeArticle
     rank: float
-
-
-class KnowledgeSearchResult(BaseModel):
-    search_expression: str
-    candidates: list[RankedKnowledgeArticle]

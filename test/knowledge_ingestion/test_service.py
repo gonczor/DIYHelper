@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.knowledge.domain import KnowledgeSourceName
 from app.knowledge_ingestion.domain import CollectionResult, KnowledgeDocument
 from app.knowledge_ingestion.service import KnowledgeIngestionService, _month_bounds
 
@@ -15,7 +16,7 @@ class StubSource:
         return CollectionResult(
             documents=[
                 KnowledgeDocument(
-                    source="hackaday",
+                    source=KnowledgeSourceName.HACKADAY,
                     title="Example hack",
                     url="https://hackaday.com/example/",
                     content="Useful article text.",
@@ -48,9 +49,11 @@ class StubKnowledgeRepository:
 async def test_ingest_saves_a_monthly_artifact() -> None:
     storage = MemoryStorage()
     repository = StubKnowledgeRepository()
-    service = KnowledgeIngestionService({"hackaday": StubSource()}, storage, repository)
+    service = KnowledgeIngestionService(
+        {KnowledgeSourceName.HACKADAY: StubSource()}, storage, repository
+    )
 
-    result = await service.ingest("hackaday", "2026-07")
+    result = await service.ingest(KnowledgeSourceName.HACKADAY, "2026-07")
 
     assert result.artifact_uri == "memory://knowledge/hackaday/2026-07.txt"
     assert result.articles_saved == 1

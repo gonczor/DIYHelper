@@ -104,12 +104,12 @@ scope and ranks title matches above content matches. Complete articles are consi
 and included up to configurable article-count and knowledge-token limits; articles are not split or
 truncated. Token counts are calculated through Gemini when first needed and then cached.
 
-Every retrieval produces a structured log showing the search expression, source scope,
-candidate article URLs and titles, PostgreSQL ranks, token counts, and why each candidate was
-selected or excluded. Article and conversation contents are not logged. Lexical search can still
-miss related terminology or return weak results for broad questions; semantic search, query
-rewriting, and chunking are deferred until real usage demonstrates a need. Use an empty `sources`
-list to explicitly retry with Gemini's general knowledge when indexed knowledge is insufficient.
+Every retrieval produces a structured log showing the source scope, candidate article URLs and
+titles, PostgreSQL ranks, token counts, and why each evaluated candidate was selected or excluded.
+Article and conversation contents are not logged. Lexical search can still miss related terminology
+or return weak results for broad questions; semantic search, query rewriting, and chunking are
+deferred until real usage demonstrates a need. Use an empty `sources` list to explicitly retry with
+Gemini's general knowledge when indexed knowledge is insufficient.
 
 See [ADR 0003](docs/architecture/decisions/0003-postgresql-article-retrieval.md) for the full design.
 

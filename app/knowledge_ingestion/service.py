@@ -2,7 +2,7 @@ import re
 from calendar import monthrange
 from datetime import UTC, datetime
 
-from app.knowledge.domain import KnowledgeDocument
+from app.knowledge.domain import KnowledgeDocument, KnowledgeSourceName
 from app.knowledge.repository import KnowledgeRepository
 from app.knowledge_ingestion.domain import IngestionResult
 from app.knowledge_ingestion.sources.base import CollectionProgressCallback, KnowledgeSource
@@ -12,7 +12,7 @@ from app.storage.base import Storage
 class KnowledgeIngestionService:
     def __init__(
         self,
-        sources: dict[str, KnowledgeSource],
+        sources: dict[KnowledgeSourceName, KnowledgeSource],
         storage: Storage,
         repository: KnowledgeRepository,
     ) -> None:
@@ -22,7 +22,7 @@ class KnowledgeIngestionService:
 
     async def ingest(
         self,
-        source: str,
+        source: KnowledgeSourceName,
         target_month: str,
         on_progress: CollectionProgressCallback | None = None,
     ) -> IngestionResult:
@@ -35,7 +35,7 @@ class KnowledgeIngestionService:
         if not collection.documents:
             raise RuntimeError(f"no documents collected for {source} in {target_month}")
 
-        content = _serialize(collection.documents).encode()
+        content = self._serialize(collection.documents).encode()
         path = f"knowledge/{source}/{target_month}.txt"
         artifact_uri = await self._storage.save(
             path, content, content_type="text/plain; charset=utf-8"
@@ -46,6 +46,31 @@ class KnowledgeIngestionService:
             articles_discovered=collection.discovered,
             articles_saved=len(collection.documents),
             articles_failed=collection.failed,
+        )
+
+    def _serialize(self, documents: list[KnowledgeDocument]) -> str:
+        ordered = sorted(documents, key=self._document_sort_key)
+        sections = [self._serialize_document(document) for document in ordered]
+        return "\n\n".join(sections) + "\n"
+
+    @staticmethod
+    def _document_sort_key(document: KnowledgeDocument) -> tuple[datetime, str]:
+        published_at = document.published_at or datetime.min.replace(tzinfo=UTC)
+        return published_at, document.url
+
+    @staticmethod
+    def _serialize_document(document: KnowledgeDocument) -> str:
+        published_at = document.published_at.isoformat() if document.published_at else ""
+        return "\n".join(
+            (
+                "===== DOCUMENT =====",
+                f"source: {document.source}",
+                f"url: {document.url}",
+                f"title: {document.title}",
+                f"published_at: {published_at}",
+                "",
+                document.content.strip(),
+            )
         )
 
 
@@ -65,27 +90,3 @@ def _month_bounds(target_month: str) -> tuple[datetime, datetime]:
     else:
         end = datetime(year, month + 1, 1, tzinfo=UTC)
     return start, end
-
-
-def _serialize(documents: list[KnowledgeDocument]) -> str:
-    ordered = sorted(
-        documents,
-        key=lambda item: (item.published_at or datetime.min.replace(tzinfo=UTC), item.url),
-    )
-    sections = []
-    for document in ordered:
-        published_at = document.published_at.isoformat() if document.published_at else ""
-        sections.append(
-            "\n".join(
-                (
-                    "===== DOCUMENT =====",
-                    f"source: {document.source}",
-                    f"url: {document.url}",
-                    f"title: {document.title}",
-                    f"published_at: {published_at}",
-                    "",
-                    document.content.strip(),
-                )
-            )
-        )
-    return "\n\n".join(sections) + "\n"

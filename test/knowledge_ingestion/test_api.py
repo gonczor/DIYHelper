@@ -4,8 +4,9 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import Database
+from app.knowledge.domain import KnowledgeSourceName
 from app.knowledge.models import KnowledgeArticleRecord
 from app.knowledge_ingestion.domain import CollectionResult, KnowledgeDocument
 from app.main import create_app
@@ -22,7 +23,7 @@ class StubHackadaySource:
         return CollectionResult(
             documents=[
                 KnowledgeDocument(
-                    source="hackaday",
+                    source=KnowledgeSourceName.HACKADAY,
                     title="Recorded article",
                     url="https://hackaday.com/recorded-article/",
                     content="An integration-test article.",
@@ -35,7 +36,10 @@ class StubHackadaySource:
 
 
 @pytest.mark.asyncio
-async def test_create_task_runs_ingestion_and_persists_result(clean_database: str) -> None:
+async def test_create_task_runs_ingestion_and_persists_result(
+    clean_database: str,
+    db_session: AsyncSession,
+) -> None:
     storage = MemoryStorage()
     settings = Settings(
         _env_file=None,
@@ -43,7 +47,11 @@ async def test_create_task_runs_ingestion_and_persists_result(clean_database: st
         db_url=clean_database,
         knowledge_request_delay_seconds=0,
     )
-    app = create_app(settings, storage=storage, sources={"hackaday": StubHackadaySource()})
+    app = create_app(
+        settings,
+        storage=storage,
+        sources={KnowledgeSourceName.HACKADAY: StubHackadaySource()},
+    )
 
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(
@@ -70,11 +78,8 @@ async def test_create_task_runs_ingestion_and_persists_result(clean_database: st
     }
     assert "knowledge/hackaday/2026-07.txt" in storage.files
 
-    database = Database(clean_database)
-    async with database.sessions() as session:
-        persisted_task = await session.scalar(select(Task).where(Task.id == task_id))
-        article = await session.scalar(select(KnowledgeArticleRecord))
-    await database.close()
+    persisted_task = await db_session.scalar(select(Task).where(Task.id == task_id))
+    article = await db_session.scalar(select(KnowledgeArticleRecord))
 
     assert persisted_task is not None
     assert article is not None
@@ -116,18 +121,16 @@ async def test_task_not_found_is_handled_by_the_application(clean_database: str)
 @pytest.mark.asyncio
 async def test_active_ingestion_task_is_handled_by_the_application(
     clean_database: str,
+    db_session: AsyncSession,
 ) -> None:
-    database = Database(clean_database)
-    async with database.sessions() as session:
-        session.add(
-            Task(
-                type="knowledge_ingestion",
-                status=TaskStatus.PENDING,
-                parameters={"source": "hackaday", "target_month": "2026-07"},
-            )
+    db_session.add(
+        Task(
+            type="knowledge_ingestion",
+            status=TaskStatus.PENDING,
+            parameters={"source": "hackaday", "target_month": "2026-07"},
         )
-        await session.commit()
-    await database.close()
+    )
+    await db_session.commit()
     app = create_app(
         Settings(_env_file=None, auth_header="integration-secret", db_url=clean_database)
     )

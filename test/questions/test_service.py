@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.knowledge.domain import KnowledgeArticle
+from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName
 from app.questions.domain import ConversationMessage
 from app.questions.service import QuestionService
 
@@ -58,7 +58,7 @@ class StubKnowledgeSelection:
 def article(number: int) -> KnowledgeArticle:
     return KnowledgeArticle(
         id=uuid4(),
-        source="hackaday",
+        source=KnowledgeSourceName.HACKADAY,
         url=f"https://example.test/{number}",
         title=f"Article {number}",
         content=f"Content {number}",
@@ -94,10 +94,12 @@ async def test_loads_ranked_articles_for_selected_sources() -> None:
     repository = StubConversationRepository()
     service = QuestionService(repository, knowledge, gemini)
 
-    _ = [event async for event in service.answer("Projects?", ["hackaday"], None)]
+    _ = [event async for event in service.answer("Projects?", [KnowledgeSourceName.HACKADAY], None)]
 
     assert gemini.answer_calls[0][0] == selected
-    assert knowledge.calls == [("Projects?", ["hackaday"], repository.conversation.id)]
+    assert knowledge.calls == [
+        ("Projects?", [KnowledgeSourceName.HACKADAY], repository.conversation.id)
+    ]
 
 
 @pytest.mark.asyncio
@@ -120,7 +122,9 @@ async def test_reports_empty_requested_knowledge_scope_without_calling_gemini() 
     gemini = StubGemini()
     service = QuestionService(repository, StubKnowledgeSelection(), gemini)
 
-    events = [event async for event in service.answer("Projects?", ["hackaday"], None)]
+    events = [
+        event async for event in service.answer("Projects?", [KnowledgeSourceName.HACKADAY], None)
+    ]
 
     assert [event.event for event in events] == ["metadata", "text", "done"]
     assert events[1].text == (
