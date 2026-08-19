@@ -25,24 +25,21 @@ class RequestLoggingMiddleware:
         request_id = str(uuid4())
         scope.setdefault("state", {})["request_id"] = request_id
         with bind_request_id(request_id):
-            await logger.ainfo(
-                "request",
-                method=scope["method"],
-                path=scope["path"],
-            )
             started_at = time.perf_counter()
             response_send = ResponseSend(send)
             try:
                 await self._app(scope, receive, response_send)
             except Exception:
-                await logger.aexception(
-                    "response",
+                logger.exception(
+                    "request failed",
+                    **_request_details(scope),
                     status_code=response_send.status_code or 500,
                     latency_ms=_latency_ms(started_at),
                 )
                 raise
-            await logger.ainfo(
-                "response",
+            logger.info(
+                "request completed",
+                **_request_details(scope),
                 status_code=response_send.status_code,
                 latency_ms=_latency_ms(started_at),
             )
@@ -61,3 +58,14 @@ class ResponseSend:
 
 def _latency_ms(started_at: float) -> float:
     return round((time.perf_counter() - started_at) * 1_000, 2)
+
+
+def _request_details(scope: Scope) -> dict[str, str | int | None]:
+    client = scope.get("client")
+    return {
+        "method": scope["method"],
+        "path": scope["path"],
+        "http_version": scope.get("http_version"),
+        "client_ip": client[0] if client else None,
+        "client_port": client[1] if client else None,
+    }

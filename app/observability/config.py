@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -34,6 +35,8 @@ def _format_value(value: Any) -> str:
 
 def configure_logging() -> None:
     """Configure structured logging whose awaited methods run off-loop."""
+    logging.getLogger("uvicorn.access").disabled = True
+    logging.getLogger("uvicorn.error").disabled = False
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

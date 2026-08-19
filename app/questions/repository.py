@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.questions.domain import ConversationMessage
@@ -26,6 +27,17 @@ class ConversationRepository:
         if conversation is None:
             raise ConversationNotFoundError(str(conversation_id))
         return conversation
+
+    async def list_recent(self) -> list[Conversation]:
+        result = await self._session.scalars(
+            select(Conversation).order_by(Conversation.updated_at.desc())
+        )
+        return list(result)
+
+    async def delete(self, conversation_id: UUID) -> None:
+        conversation = await self.get(conversation_id)
+        await self._session.delete(conversation)
+        await self._session.commit()
 
     async def replace_context(
         self,

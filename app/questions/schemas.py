@@ -1,6 +1,8 @@
+from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AskQuestionRequest(BaseModel):
@@ -25,3 +27,24 @@ class AskQuestionRequest(BaseModel):
             dict.fromkeys(source.strip().lower() for source in value if source.strip())
         )
         return normalized
+
+
+class ConversationMessageResponse(BaseModel):
+    role: Literal["user", "model"]
+    content: str
+
+
+class ConversationSummaryResponse(BaseModel):
+    id: UUID
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    messages: list[ConversationMessageResponse]
+    created_at: datetime
+    updated_at: datetime

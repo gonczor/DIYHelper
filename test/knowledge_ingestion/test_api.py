@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -90,3 +90,54 @@ async def test_create_task_runs_ingestion_and_persists_result(clean_database: st
         "articles_saved": 1,
         "articles_failed": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_task_not_found_is_handled_by_the_application(clean_database: str) -> None:
+    app = create_app(
+        Settings(_env_file=None, auth_header="integration-secret", db_url=clean_database)
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                f"/tasks/{uuid4()}", headers={"X-Auth-Token": "integration-secret"}
+            )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "task not found"}
+
+
+@pytest.mark.asyncio
+async def test_active_ingestion_task_is_handled_by_the_application(
+    clean_database: str,
+) -> None:
+    database = Database(clean_database)
+    async with database.sessions() as session:
+        session.add(
+            Task(
+                type="knowledge_ingestion",
+                status=TaskStatus.PENDING,
+                parameters={"source": "hackaday", "target_month": "2026-07"},
+            )
+        )
+        await session.commit()
+    await database.close()
+    app = create_app(
+        Settings(_env_file=None, auth_header="integration-secret", db_url=clean_database)
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/knowledge-ingestion/tasks",
+                headers={"X-Auth-Token": "integration-secret"},
+                json={"source": "hackaday", "target_month": "2026-07"},
+            )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "an active hackaday task already exists for 2026-07"}

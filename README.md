@@ -18,7 +18,26 @@ code is in `app/` directory, infrastructure is managed in `infra/`.
 4. Create a random string for the auth header and paste it into `.env`.
 5. Apply database migrations with `docker compose run --rm api alembic upgrade head`.
 6. Run the project with `docker compose up --build`.
-7. Open the API documentation at <http://localhost:8000/docs>.
+7. Open the frontend at <http://localhost:5173> or the API documentation at
+   <http://localhost:8000/docs>.
+
+### Frontend
+
+The React frontend lives in `frontend/` and is included in `docker compose up --build`. Its Nginx
+container serves the built application at <http://localhost:5173> and proxies `/api` requests to the
+API container.
+
+For frontend development with hot reload, leave the API running and start Vite separately:
+
+```shell
+cd frontend
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173> and enter the same `AUTH_HEADER` value used by the API. Vite proxies
+requests under `/api` to the local backend. Run `npm test`, `npm run lint`, and `npm run build` to
+validate frontend changes.
 
 For local debugging outside Docker, start the reload-enabled server with:
 
@@ -29,7 +48,7 @@ uv run python app/main.py
 For a production-style invocation, use:
 
 ```shell
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
 ```
 
 Database models live in `models.py` modules and schema changes are managed by Alembic. After changing

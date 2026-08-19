@@ -1,3 +1,4 @@
+import logging
 import re
 from uuid import UUID
 
@@ -13,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 async def logged_endpoint() -> dict[str, str]:
-    await logger.ainfo("inside endpoint")
+    logger.info("inside endpoint")
     return {"status": "ok"}
 
 
@@ -23,7 +24,7 @@ def test_task_request_id_can_be_null_for_non_http_execution() -> None:
     assert task.request_id is None
 
 
-async def test_logs_request_response_and_propagates_request_id(capsys) -> None:
+async def test_logs_one_completed_request_and_propagates_request_id(capsys) -> None:
     configure_logging()
     app = FastAPI()
     app.add_middleware(RequestLoggingMiddleware)
@@ -36,20 +37,29 @@ async def test_logs_request_response_and_propagates_request_id(capsys) -> None:
 
     assert response.status_code == 200
     logs = capsys.readouterr().out.splitlines()
-    request_log = next(line for line in logs if ": request " in line)
     endpoint_log = next(line for line in logs if ": inside endpoint " in line)
-    response_log = next(line for line in logs if ": response " in line)
+    request_log = next(line for line in logs if ": request completed " in line)
 
-    assert re.match(r"INFO - \d{4}-\d{2}-\d{2}T.*Z: request ", request_log)
+    assert sum(": request completed " in line for line in logs) == 1
+    assert re.match(r"INFO - \d{4}-\d{2}-\d{2}T.*Z: request completed ", request_log)
     request_id = re.search(r"request_id=([0-9a-f-]+)", request_log)
     assert request_id is not None
     UUID(request_id.group(1))
     assert "method=GET" in request_log
     assert "path=/logged" in request_log
+    assert "client_ip=127.0.0.1" in request_log
+    assert "client_port=123" in request_log
+    assert "http_version=1.1" in request_log
     assert f"request_id={request_id.group(1)}" in endpoint_log
-    assert f"request_id={request_id.group(1)}" in response_log
-    assert "status_code=200" in response_log
-    assert re.search(r"latency_ms=\d+(\.\d+)?", response_log)
+    assert "status_code=200" in request_log
+    assert re.search(r"latency_ms=\d+(\.\d+)?", request_log)
+
+
+def test_configure_logging_disables_only_uvicorn_access_logs() -> None:
+    configure_logging()
+
+    assert logging.getLogger("uvicorn.access").disabled is True
+    assert logging.getLogger("uvicorn.error").disabled is False
 
 
 def test_log_renderer_defaults_timestamp_to_current_utc_time() -> None:
