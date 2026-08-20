@@ -50,6 +50,7 @@ jobs:
           --health-retries 10
     env:
       AUTH_HEADER: ci-secret
+      DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
       TEST_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/diyhelper_test
     steps:
       - uses: actions/checkout@v5

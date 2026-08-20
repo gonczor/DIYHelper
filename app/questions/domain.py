@@ -1,7 +1,14 @@
+from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
+
+
+class KnowledgeAnswerMode(StrEnum):
+    GENERAL = "general"
+    REFERENCED = "referenced"
+    EMPTY_SCOPE = "empty_scope"
 
 
 class ConversationMessage(BaseModel):
