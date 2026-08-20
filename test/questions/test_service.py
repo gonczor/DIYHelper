@@ -117,7 +117,7 @@ async def test_omitted_sources_searches_every_source() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reports_empty_requested_knowledge_scope_without_calling_gemini() -> None:
+async def test_empty_requested_knowledge_scope_uses_broad_knowledge() -> None:
     repository = StubConversationRepository()
     gemini = StubGemini()
     service = QuestionService(repository, StubKnowledgeSelection(), gemini)
@@ -126,15 +126,14 @@ async def test_reports_empty_requested_knowledge_scope_without_calling_gemini() 
         event async for event in service.answer("Projects?", [KnowledgeSourceName.HACKADAY], None)
     ]
 
-    assert [event.event for event in events] == ["metadata", "text", "done"]
-    assert events[1].text == (
-        "I cannot answer this based on the current knowledge scope because no reference "
-        "documents were found."
-    )
-    assert gemini.answer_calls == []
+    assert [event.event for event in events] == ["metadata", "text", "text", "done"]
+    articles, summary, sent_messages = gemini.answer_calls[0]
+    assert articles == []
+    assert summary is None
+    assert sent_messages == [ConversationMessage(role="user", content="Projects?")]
     assert repository.conversation.messages[-1] == {
         "role": "model",
-        "content": events[1].text,
+        "content": "first second",
     }
 
 

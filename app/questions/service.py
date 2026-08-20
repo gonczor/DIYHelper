@@ -11,10 +11,6 @@ from app.questions.repository import ConversationRepository
 
 SUMMARY_THRESHOLD = 20
 RECENT_MESSAGES_TO_KEEP = 6
-EMPTY_KNOWLEDGE_SCOPE_RESPONSE = (
-    "I cannot answer this based on the current knowledge scope because no reference documents "
-    "were found."
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -67,13 +63,9 @@ class QuestionService:
         yield QuestionEvent(event="metadata", conversation_id=conversation.id)
 
         answer = ""
-        if sources != [] and not articles:
-            answer = EMPTY_KNOWLEDGE_SCOPE_RESPONSE
-            yield QuestionEvent(event="text", text=answer)
-        else:
-            async for text in self._gemini.stream_answer(articles, summary, messages):
-                answer += text
-                yield QuestionEvent(event="text", text=text)
+        async for text in self._gemini.stream_answer(articles, summary, messages):
+            answer += text
+            yield QuestionEvent(event="text", text=text)
 
         messages.append(ConversationMessage(role="model", content=answer))
         await self._repository.replace_context(conversation, messages, summary)
