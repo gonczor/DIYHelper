@@ -9,9 +9,10 @@ services:
 
   api:
     build: .
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     env_file: .env
     environment:
-      DB_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-diyhelper}
+      DB_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-postgres}
     ports:
       - "8000:8000"
     volumes:
@@ -29,7 +30,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-diyhelper}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
       interval: 2s
       timeout: 5s
       retries: 10

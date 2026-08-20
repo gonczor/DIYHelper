@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     auth_header: SecretStr
     gemini_api_key: SecretStr | None = None
-    db_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/diyhelper"
+    db_url: str
 
     storage_backend: Literal["local", "gcs"] = "local"
     local_storage_root: Path = PROJECT_ROOT / "data"

@@ -12,3 +12,5 @@ and the code.
   frontend engineer) browsing the docs how to use it.
 - When handling a GitHub issue, create and switch to a dedicated branch before implementation. Use
   the branch name schema `issue/<number>-<short-description>`.
+- For design changes or solution exploration, present the proposed behavior, scope, and tradeoffs
+  first. Do not begin implementation until the user explicitly agrees to the solution.
