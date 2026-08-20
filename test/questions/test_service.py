@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName
-from app.questions.domain import ConversationMessage
+from app.questions.domain import ConversationMessage, KnowledgeAnswerMode
 from app.questions.service import QuestionService
 
 
@@ -39,8 +39,8 @@ class StubGemini:
         self.summary_calls.append((previous_summary, messages))
         return "condensed history"
 
-    async def stream_answer(self, articles, summary, messages):
-        self.answer_calls.append((articles, summary, list(messages)))
+    async def stream_answer(self, articles, mode, summary, messages):
+        self.answer_calls.append((articles, mode, summary, list(messages)))
         yield "first "
         yield "second"
 
@@ -75,8 +75,9 @@ async def test_empty_sources_uses_broad_knowledge_and_persists_complete_messages
     events = [event async for event in service.answer("What is ESP32?", [], None)]
 
     assert [event.event for event in events] == ["metadata", "text", "text", "done"]
-    articles, summary, sent_messages = gemini.answer_calls[0]
+    articles, mode, summary, sent_messages = gemini.answer_calls[0]
     assert articles == []
+    assert mode is KnowledgeAnswerMode.GENERAL
     assert knowledge.calls == []
     assert summary is None
     assert sent_messages == [ConversationMessage(role="user", content="What is ESP32?")]
@@ -97,6 +98,7 @@ async def test_loads_ranked_articles_for_selected_sources() -> None:
     _ = [event async for event in service.answer("Projects?", [KnowledgeSourceName.HACKADAY], None)]
 
     assert gemini.answer_calls[0][0] == selected
+    assert gemini.answer_calls[0][1] is KnowledgeAnswerMode.REFERENCED
     assert knowledge.calls == [
         ("Projects?", [KnowledgeSourceName.HACKADAY], repository.conversation.id)
     ]
@@ -113,11 +115,12 @@ async def test_omitted_sources_searches_every_source() -> None:
     _ = [event async for event in service.answer("Projects?", None, None)]
 
     assert gemini.answer_calls[0][0] == selected
+    assert gemini.answer_calls[0][1] is KnowledgeAnswerMode.REFERENCED
     assert knowledge.calls == [("Projects?", None, repository.conversation.id)]
 
 
 @pytest.mark.asyncio
-async def test_empty_requested_knowledge_scope_uses_broad_knowledge() -> None:
+async def test_empty_requested_knowledge_scope_lets_model_decide_without_broad_knowledge() -> None:
     repository = StubConversationRepository()
     gemini = StubGemini()
     service = QuestionService(repository, StubKnowledgeSelection(), gemini)
@@ -127,8 +130,9 @@ async def test_empty_requested_knowledge_scope_uses_broad_knowledge() -> None:
     ]
 
     assert [event.event for event in events] == ["metadata", "text", "text", "done"]
-    articles, summary, sent_messages = gemini.answer_calls[0]
+    articles, mode, summary, sent_messages = gemini.answer_calls[0]
     assert articles == []
+    assert mode is KnowledgeAnswerMode.EMPTY_SCOPE
     assert summary is None
     assert sent_messages == [ConversationMessage(role="user", content="Projects?")]
     assert repository.conversation.messages[-1] == {
@@ -155,7 +159,7 @@ async def test_summarizes_old_messages_and_keeps_latest_six() -> None:
     previous_summary, summarized = gemini.summary_calls[0]
     assert previous_summary == "previous summary"
     assert len(summarized) == 14
-    _, summary, sent_messages = gemini.answer_calls[0]
+    _, _, summary, sent_messages = gemini.answer_calls[0]
     assert summary == "condensed history"
     assert len(sent_messages) == 6
     assert sent_messages[-1].content == "new question"
@@ -164,7 +168,7 @@ async def test_summarizes_old_messages_and_keeps_latest_six() -> None:
 @pytest.mark.asyncio
 async def test_does_not_persist_partial_assistant_answer() -> None:
     class FailingGemini(StubGemini):
-        async def stream_answer(self, articles, summary, messages):
+        async def stream_answer(self, articles, mode, summary, messages):
             yield "partial"
             raise RuntimeError("generation failed")
 
@@ -193,7 +197,7 @@ async def test_uses_complete_history_when_summarization_fails() -> None:
 
     _ = [event async for event in service.answer("new question", [], None)]
 
-    assert len(gemini.answer_calls[0][2]) == 20
+    assert len(gemini.answer_calls[0][3]) == 20
 
 
 @pytest.mark.asyncio

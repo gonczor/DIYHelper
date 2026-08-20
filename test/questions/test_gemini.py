@@ -7,9 +7,10 @@ import pytest
 from google import genai
 
 from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName
-from app.questions.domain import ConversationMessage
+from app.questions.domain import ConversationMessage, KnowledgeAnswerMode
 from app.questions.gemini import (
     BROAD_KNOWLEDGE_INSTRUCTION,
+    EMPTY_SCOPE_INSTRUCTION,
     MODEL,
     RESTRICTED_KNOWLEDGE_INSTRUCTION,
     SUMMARY_INSTRUCTION,
@@ -42,6 +43,7 @@ async def test_streams_expected_gemini_request() -> None:
         text
         async for text in gateway.stream_answer(
             [article()],
+            KnowledgeAnswerMode.REFERENCED,
             "earlier context",
             [ConversationMessage(role="user", content="question")],
         )
@@ -69,6 +71,7 @@ async def test_uses_broad_instruction_without_reference_documents() -> None:
         text
         async for text in gateway.stream_answer(
             [],
+            KnowledgeAnswerMode.GENERAL,
             None,
             [ConversationMessage(role="user", content="question")],
         )
@@ -76,6 +79,26 @@ async def test_uses_broad_instruction_without_reference_documents() -> None:
 
     call = client.aio.models.generate_content_stream.await_args
     assert call.kwargs["config"].system_instruction == BROAD_KNOWLEDGE_INSTRUCTION
+
+
+@pytest.mark.asyncio
+async def test_uses_empty_scope_instruction_when_retrieval_finds_nothing() -> None:
+    client = Mock()
+    client.aio.models.generate_content_stream = AsyncMock(return_value=chunks())
+    gateway = GeminiGateway(cast(genai.Client, client))
+
+    _ = [
+        text
+        async for text in gateway.stream_answer(
+            [],
+            KnowledgeAnswerMode.EMPTY_SCOPE,
+            None,
+            [ConversationMessage(role="user", content="What is ESP32?")],
+        )
+    ]
+
+    call = client.aio.models.generate_content_stream.await_args
+    assert call.kwargs["config"].system_instruction == EMPTY_SCOPE_INSTRUCTION
 
 
 @pytest.mark.asyncio

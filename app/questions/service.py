@@ -3,9 +3,9 @@ from uuid import UUID
 
 import structlog
 
-from app.knowledge.domain import KnowledgeSourceName
+from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName
 from app.knowledge.service import KnowledgeSelectionService
-from app.questions.domain import ConversationMessage, QuestionEvent
+from app.questions.domain import ConversationMessage, KnowledgeAnswerMode, QuestionEvent
 from app.questions.gemini import GeminiGatewayProtocol
 from app.questions.repository import ConversationRepository
 
@@ -63,10 +63,22 @@ class QuestionService:
         yield QuestionEvent(event="metadata", conversation_id=conversation.id)
 
         answer = ""
-        async for text in self._gemini.stream_answer(articles, summary, messages):
+        mode = self._answer_mode(sources, articles)
+        async for text in self._gemini.stream_answer(articles, mode, summary, messages):
             answer += text
             yield QuestionEvent(event="text", text=text)
 
         messages.append(ConversationMessage(role="model", content=answer))
         await self._repository.replace_context(conversation, messages, summary)
         yield QuestionEvent(event="done", conversation_id=conversation.id)
+
+    @staticmethod
+    def _answer_mode(
+        sources: list[KnowledgeSourceName] | None,
+        articles: list[KnowledgeArticle],
+    ) -> KnowledgeAnswerMode:
+        if sources == []:
+            return KnowledgeAnswerMode.GENERAL
+        if articles:
+            return KnowledgeAnswerMode.REFERENCED
+        return KnowledgeAnswerMode.EMPTY_SCOPE
