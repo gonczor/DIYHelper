@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.db import Base
 from app.knowledge import models as knowledge_models  # noqa: F401 - registers database models
 from app.questions import models  # noqa
-from app.tasks import models  # noqa: F401 - registers database models in metadata
+from app.tasks import models as tasks_mods  # noqa: F401 - registers database models in metadata
 
 config = context.config
 if config.config_file_name is not None:
