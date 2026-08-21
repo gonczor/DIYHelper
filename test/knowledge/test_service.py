@@ -3,7 +3,12 @@ from uuid import uuid4
 
 import pytest
 
-from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName, RankedKnowledgeArticle
+from app.knowledge.domain import (
+    KnowledgeArticle,
+    KnowledgeSourceName,
+    RankedKnowledgeArticle,
+    StoredKnowledgeReference,
+)
 from app.knowledge.service import KnowledgeSelectionService
 
 
@@ -34,6 +39,14 @@ class StubRepository:
 
     async def set_token_count(self, article_id, token_count):
         self.saved_counts.append((article_id, token_count))
+
+    async def find_by_references(self, references):
+        keys = {(reference.source, reference.url) for reference in references}
+        return [
+            candidate.article
+            for candidate in self.candidates
+            if (candidate.article.source, candidate.article.url) in keys
+        ]
 
 
 class StubTokenCounter:
@@ -133,3 +146,50 @@ async def test_stops_and_logs_asynchronously_after_reaching_article_limit(
     assert counter.calls == []
     assert "private question text" not in str(call.kwargs)
     assert "Content 1" not in str(call.kwargs)
+
+
+@pytest.mark.asyncio
+async def test_combines_current_and_carried_references_with_deduplication_and_limits() -> None:
+    candidates = [candidate(1, 0.9, 25), candidate(2, 0.8, 25), candidate(3, 0.7, 25)]
+    repository = StubRepository(candidates)
+    service = KnowledgeSelectionService(
+        repository,
+        StubTokenCounter({}),
+        candidate_limit=3,
+        article_limit=2,
+        token_budget=100,
+    )
+    carried = [
+        StoredKnowledgeReference(
+            source=KnowledgeSourceName.HACKADAY, url=candidates[1].article.url
+        ),
+        StoredKnowledgeReference(
+            source=KnowledgeSourceName.HACKADAY, url=candidates[2].article.url
+        ),
+    ]
+
+    selected = await service.select("current", None, uuid4(), carried)
+
+    assert selected == [candidates[0].article, candidates[1].article]
+
+
+@pytest.mark.asyncio
+async def test_keeps_missing_carried_url_as_citation_locator_and_filters_source_scope() -> None:
+    repository = StubRepository([])
+    counter = StubTokenCounter(
+        {"Reference URL (document unavailable): https://example.test/gone": 8}
+    )
+    service = KnowledgeSelectionService(repository, counter, 10, 3, 100)
+    carried = [
+        StoredKnowledgeReference(
+            source=KnowledgeSourceName.HACKADAY,
+            url="https://example.test/gone",
+        )
+    ]
+
+    selected = await service.select("follow up", [KnowledgeSourceName.HACKADAY], uuid4(), carried)
+    excluded = await service.select("follow up", [], uuid4(), carried)
+
+    assert selected[0].url == "https://example.test/gone"
+    assert selected[0].content is None
+    assert excluded == []

@@ -42,6 +42,35 @@ class KnowledgeArticle(BaseModel):
         )
 
 
+class StoredKnowledgeReference(BaseModel):
+    source: KnowledgeSourceName
+    url: str
+
+
+class KnowledgeReference(StoredKnowledgeReference):
+    title: str | None = None
+    content: str | None = None
+    published_at: datetime | None = None
+    token_count: int | None = None
+
+    def as_reference(self) -> str:
+        """Format available evidence or retain a locator for a deleted article."""
+        if self.content is None:
+            return f"Reference URL (document unavailable): {self.url}"
+        published_at = self.published_at.isoformat() if self.published_at else ""
+        return "\n".join(
+            (
+                "===== DOCUMENT =====",
+                f"source: {self.source}",
+                f"url: {self.url}",
+                f"title: {self.title or ''}",
+                f"published_at: {published_at}",
+                "",
+                self.content.strip(),
+            )
+        )
+
+
 class RankedKnowledgeArticle(BaseModel):
     article: KnowledgeArticle
     rank: float

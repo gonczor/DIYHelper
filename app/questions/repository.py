@@ -45,6 +45,6 @@ class ConversationRepository:
         messages: list[ConversationMessage],
         summary: str | None,
     ) -> None:
-        conversation.messages = [message.model_dump() for message in messages]
+        conversation.messages = [message.model_dump(exclude_defaults=True) for message in messages]
         conversation.summary = summary
         await self._session.commit()

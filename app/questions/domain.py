@@ -2,7 +2,9 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.knowledge.domain import StoredKnowledgeReference
 
 
 class KnowledgeAnswerMode(StrEnum):
@@ -14,6 +16,7 @@ class KnowledgeAnswerMode(StrEnum):
 class ConversationMessage(BaseModel):
     role: Literal["user", "model"]
     content: str
+    references: list[StoredKnowledgeReference] = Field(default_factory=list)
 
 
 class QuestionEvent(BaseModel):

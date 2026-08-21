@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.knowledge.domain import KnowledgeDocument, KnowledgeSourceName
+from app.knowledge.domain import KnowledgeDocument, KnowledgeSourceName, StoredKnowledgeReference
 from app.knowledge.repository import KnowledgeRepository
 
 
@@ -103,3 +103,26 @@ async def test_upsert_invalidates_token_count_only_when_article_changes(
 
     assert unchanged.article.token_count == 42
     assert changed.article.token_count is None
+
+
+@pytest.mark.asyncio
+async def test_finds_persisted_articles_by_source_and_url(db_session: AsyncSession) -> None:
+    repository = KnowledgeRepository(db_session)
+    await repository.upsert_documents(
+        [document(url="https://example.test/kept", title="Kept", content="Evidence")]
+    )
+
+    result = await repository.find_by_references(
+        [
+            StoredKnowledgeReference(
+                source=KnowledgeSourceName.HACKADAY,
+                url="https://example.test/kept",
+            ),
+            StoredKnowledgeReference(
+                source=KnowledgeSourceName.HACKADAY,
+                url="https://example.test/missing",
+            ),
+        ]
+    )
+
+    assert [article.url for article in result] == ["https://example.test/kept"]

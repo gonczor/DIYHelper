@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +9,7 @@ from app.knowledge.domain import (
     KnowledgeDocument,
     KnowledgeSourceName,
     RankedKnowledgeArticle,
+    StoredKnowledgeReference,
 )
 from app.knowledge.models import KnowledgeArticleRecord
 
@@ -84,6 +85,31 @@ class KnowledgeRepository:
             raise LookupError(str(article_id))
         article.token_count = token_count
         await self._session.commit()
+
+    async def find_by_references(
+        self,
+        references: list[StoredKnowledgeReference],
+    ) -> list[KnowledgeArticle]:
+        if not references:
+            return []
+        filters = [
+            and_(
+                KnowledgeArticleRecord.source == reference.source,
+                KnowledgeArticleRecord.url == reference.url,
+            )
+            for reference in references
+        ]
+        records = (
+            await self._session.scalars(select(KnowledgeArticleRecord).where(or_(*filters)))
+        ).all()
+        articles_by_key = {
+            (record.source, record.url): self._to_domain(record) for record in records
+        }
+        return [
+            articles_by_key[(reference.source, reference.url)]
+            for reference in references
+            if (reference.source, reference.url) in articles_by_key
+        ]
 
     @staticmethod
     def _to_domain(record: KnowledgeArticleRecord) -> KnowledgeArticle:
