@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class KnowledgeSourceName(StrEnum):
@@ -15,6 +15,8 @@ class KnowledgeDocument(BaseModel):
     url: str
     content: str
     published_at: datetime | None = None
+    categories: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class KnowledgeArticle(BaseModel):
@@ -25,6 +27,8 @@ class KnowledgeArticle(BaseModel):
     content: str
     published_at: datetime | None = None
     token_count: int | None = None
+    categories: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
     def as_reference(self) -> str:
         """Format a complete article as untrusted reference context for the model prompt."""
@@ -36,6 +40,8 @@ class KnowledgeArticle(BaseModel):
                 f"url: {self.url}",
                 f"title: {self.title}",
                 f"published_at: {published_at}",
+                f"categories: {', '.join(self.categories)}",
+                f"tags: {', '.join(self.tags)}",
                 "",
                 self.content.strip(),
             )

@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import Computed, DateTime, Index, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,10 +27,14 @@ class KnowledgeArticleRecord(Base):
     content: Mapped[str] = mapped_column(Text)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    categories: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     search_vector: Mapped[str] = mapped_column(
         TSVECTOR,
         Computed(
             "setweight(to_tsvector('english', coalesce(title, '')), 'A') || "
+            "setweight(to_tsvector('english', knowledge_taxonomy_text(categories)), 'A') || "
+            "setweight(to_tsvector('english', knowledge_taxonomy_text(tags)), 'A') || "
             "setweight(to_tsvector('english', coalesce(content, '')), 'B')",
             persisted=True,
         ),

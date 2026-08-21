@@ -25,6 +25,8 @@ async def test_collects_an_article_from_a_daily_archive() -> None:
     assert document.title
     assert len(document.content) > 200
     assert document.published_at is not None
+    assert document.categories
+    assert document.tags
 
 
 @pytest.mark.vcr
@@ -50,3 +52,31 @@ async def test_follows_daily_archive_pagination() -> None:
     assert all(
         document.url.startswith("https://hackaday.com/2026/07/01/") for document in result.documents
     )
+
+
+@pytest.mark.asyncio
+async def test_parses_article_categories_and_tags() -> None:
+    html = """
+    <article>
+      <h1 class="entry-title">Microcontroller project</h1>
+      <div class="entry-content"><p>Useful article content.</p></div>
+      <span class="cat-links">Posted in
+        <a rel="category tag">Arduino Hacks</a>
+        <a rel="category tag">Microcontrollers</a>
+      </span>
+      <span class="tags-links">Tagged
+        <a rel="tag">ATmega328P</a>
+        <a rel="tag">ESP32</a>
+      </span>
+    </article>
+    """
+    async with httpx.AsyncClient() as client:
+        source = HackadaySource(client, request_delay_seconds=0)
+        document = source._parse_article(
+            html,
+            "https://hackaday.com/example/",
+            datetime(2026, 7, 1, tzinfo=UTC),
+        )
+
+    assert document.categories == ["Arduino Hacks", "Microcontrollers"]
+    assert document.tags == ["ATmega328P", "ESP32"]
