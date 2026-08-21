@@ -1,8 +1,11 @@
+import type { KnowledgeReference } from "./types";
+
 export type QuestionEvent = {
   event: "metadata" | "text" | "done" | "error";
   conversation_id?: string;
   text?: string;
   message?: string;
+  references?: KnowledgeReference[];
 };
 
 export type QuestionRequest = {
@@ -33,7 +36,11 @@ export type ConversationSummary = {
 
 export type Conversation = {
   id: string;
-  messages: Array<{ role: "user" | "model"; content: string }>;
+  messages: Array<{
+    role: "user" | "model";
+    content: string;
+    references?: KnowledgeReference[];
+  }>;
   created_at: string;
   updated_at: string;
 };

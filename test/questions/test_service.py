@@ -75,6 +75,7 @@ async def test_empty_sources_uses_broad_knowledge_and_persists_complete_messages
     events = [event async for event in service.answer("What is ESP32?", [], None)]
 
     assert [event.event for event in events] == ["metadata", "text", "text", "done"]
+    assert events[0].references == []
     articles, mode, summary, sent_messages = gemini.answer_calls[0]
     assert articles == []
     assert mode is KnowledgeAnswerMode.GENERAL
@@ -95,12 +96,26 @@ async def test_loads_ranked_articles_for_selected_sources() -> None:
     repository = StubConversationRepository()
     service = QuestionService(repository, knowledge, gemini)
 
-    _ = [event async for event in service.answer("Projects?", [KnowledgeSourceName.HACKADAY], None)]
+    events = [
+        event async for event in service.answer("Projects?", [KnowledgeSourceName.HACKADAY], None)
+    ]
 
     assert gemini.answer_calls[0][0] == selected
     assert gemini.answer_calls[0][1] is KnowledgeAnswerMode.REFERENCED
     assert knowledge.calls == [
         ("Projects?", [KnowledgeSourceName.HACKADAY], repository.conversation.id, [])
+    ]
+    assert events[0].references == [
+        StoredKnowledgeReference(
+            source=KnowledgeSourceName.HACKADAY,
+            url=selected[0].url,
+            title=selected[0].title,
+        ),
+        StoredKnowledgeReference(
+            source=KnowledgeSourceName.HACKADAY,
+            url=selected[1].url,
+            title=selected[1].title,
+        ),
     ]
 
 
@@ -158,6 +173,7 @@ async def test_carries_preceding_assistant_references_and_persists_selected_urls
         {
             "source": KnowledgeSourceName.HACKADAY,
             "url": selected[0].url,
+            "title": selected[0].title,
         }
     ]
 

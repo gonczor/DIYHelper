@@ -75,6 +75,11 @@
 .message-author { margin: 0 0 7px; font: 10px "DM Mono", monospace; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
 .message-content { max-width: 650px; white-space: pre-wrap; line-height: 1.7; font-size: 14px; }
 .assistant .message-content { padding: 17px 20px; border-left: 3px solid var(--orange); background: #eee9df; }
+.citation-link, .message-sources a { color: var(--orange-dark); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.message-sources { margin: 10px 0 0 20px; color: var(--muted); font-size: 11px; }
+.message-sources > span { font: 9px "DM Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.message-sources ol { margin: 5px 0 0; padding-left: 22px; }
+.message-sources li { margin: 3px 0; }
 .typing { letter-spacing: 4px; color: var(--orange); }
 .streaming-label { margin-left: 57px; color: var(--muted); font: 10px "DM Mono", monospace; text-transform: uppercase; }
 .composer-wrap { position: absolute; bottom: 26px; left: 50%; width: min(720px, calc(100% - 60px)); transform: translateX(-50%); }

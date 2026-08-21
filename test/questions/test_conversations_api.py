@@ -52,7 +52,17 @@ async def test_gets_conversation_messages_and_requires_authentication(
         conversation = Conversation(
             messages=[
                 {"role": "user", "content": "What is flux?"},
-                {"role": "model", "content": "Flux helps solder flow."},
+                {
+                    "role": "model",
+                    "content": "Flux helps solder flow [1].",
+                    "references": [
+                        {
+                            "source": "hackaday",
+                            "url": "https://example.test/flux",
+                            "title": "A guide to flux",
+                        }
+                    ],
+                },
             ]
         )
         session.add(conversation)
@@ -71,7 +81,10 @@ async def test_gets_conversation_messages_and_requires_authentication(
 
     await database.close()
     assert response.status_code == 200
-    assert response.json()["messages"] == conversation.messages
+    assert response.json()["messages"] == [
+        {"role": "user", "content": "What is flux?", "references": []},
+        conversation.messages[1],
+    ]
     assert unauthorized.status_code == 401
 
 

@@ -51,6 +51,7 @@ class KnowledgeArticle(BaseModel):
 class StoredKnowledgeReference(BaseModel):
     source: KnowledgeSourceName
     url: str
+    title: str | None = None
 
 
 class KnowledgeReference(StoredKnowledgeReference):
