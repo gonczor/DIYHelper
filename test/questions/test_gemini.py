@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from google import genai
 
-from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName
+from app.knowledge.domain import KnowledgeArticle, KnowledgeReference, KnowledgeSourceName
 from app.questions.domain import ConversationMessage, KnowledgeAnswerMode
 from app.questions.gemini import (
     BROAD_KNOWLEDGE_INSTRUCTION,
@@ -99,6 +99,31 @@ async def test_uses_empty_scope_instruction_when_retrieval_finds_nothing() -> No
 
     call = client.aio.models.generate_content_stream.await_args
     assert call.kwargs["config"].system_instruction == EMPTY_SCOPE_INSTRUCTION
+
+
+@pytest.mark.asyncio
+async def test_marks_deleted_article_url_as_locator_without_document_evidence() -> None:
+    client = Mock()
+    client.aio.models.generate_content_stream = AsyncMock(return_value=chunks())
+    gateway = GeminiGateway(cast(genai.Client, client))
+    locator = KnowledgeReference(
+        source=KnowledgeSourceName.HACKADAY,
+        url="https://example.test/deleted",
+    )
+
+    _ = [
+        text
+        async for text in gateway.stream_answer(
+            [locator],
+            KnowledgeAnswerMode.REFERENCED,
+            None,
+            [ConversationMessage(role="user", content="Tell me more")],
+        )
+    ]
+
+    call = client.aio.models.generate_content_stream.await_args
+    assert "document unavailable" in call.kwargs["contents"][0].parts[0].text
+    assert "only a citation locator" in call.kwargs["config"].system_instruction
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,12 @@ from uuid import UUID
 
 import structlog
 
-from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName, RankedKnowledgeArticle
+from app.knowledge.domain import (
+    KnowledgeArticle,
+    KnowledgeReference,
+    KnowledgeSourceName,
+    StoredKnowledgeReference,
+)
 from app.knowledge.repository import KnowledgeRepository
 
 logger = structlog.get_logger(__name__)
@@ -34,22 +39,26 @@ class KnowledgeSelectionService:
         query: str,
         sources: list[KnowledgeSourceName] | None,
         conversation_id: UUID,
-    ) -> list[KnowledgeArticle]:
+        carried_references: list[StoredKnowledgeReference] | None = None,
+    ) -> list[KnowledgeArticle | KnowledgeReference]:
         started_at = time.perf_counter()
-        candidates = await self._repository.search(query, sources, self._candidate_limit)
-        selected: list[KnowledgeArticle] = []
+        if sources == []:
+            return []
+        candidates = await self._combined_candidates(query, sources, carried_references or [])
+        selected: list[KnowledgeArticle | KnowledgeReference] = []
         selected_tokens = 0
         diagnostics: list[dict[str, object]] = []
-        for candidate in candidates:
+        for candidate, rank in candidates[: self._candidate_limit]:
             if len(selected) >= self._article_limit:
                 break
             diagnostic, token_count = await self._evaluate_candidate(
                 candidate,
+                rank,
                 selected_tokens,
             )
             diagnostics.append(diagnostic)
             if diagnostic["selected"]:
-                selected.append(candidate.article)
+                selected.append(candidate)
                 selected_tokens += token_count
 
         await logger.ainfo(
@@ -66,23 +75,59 @@ class KnowledgeSelectionService:
         )
         return selected
 
+    async def _combined_candidates(
+        self,
+        query: str,
+        sources: list[KnowledgeSourceName] | None,
+        carried_references: list[StoredKnowledgeReference],
+    ) -> list[tuple[KnowledgeArticle | KnowledgeReference, float | None]]:
+        current = await self._repository.search(query, sources, self._candidate_limit)
+        current_articles = [candidate.article for candidate in current]
+        allowed_carried = self._allowed_references(carried_references, sources)
+        stored_articles = await self._repository.find_by_references(allowed_carried)
+        stored_by_key = {(article.source, article.url): article for article in stored_articles}
+        combined: list[tuple[KnowledgeArticle | KnowledgeReference, float | None]] = [
+            (candidate.article, candidate.rank) for candidate in current
+        ]
+        seen = {(article.source, article.url) for article in current_articles}
+        for reference in allowed_carried:
+            key = (reference.source, reference.url)
+            if key in seen:
+                continue
+            combined.append(
+                (stored_by_key.get(key) or KnowledgeReference(**reference.model_dump()), None)
+            )
+            seen.add(key)
+        return combined
+
+    @staticmethod
+    def _allowed_references(
+        references: list[StoredKnowledgeReference],
+        sources: list[KnowledgeSourceName] | None,
+    ) -> list[StoredKnowledgeReference]:
+        if sources is None:
+            return references
+        return [reference for reference in references if reference.source in sources]
+
     async def _evaluate_candidate(
         self,
-        candidate: RankedKnowledgeArticle,
+        candidate: KnowledgeArticle | KnowledgeReference,
+        rank: float | None,
         selected_tokens: int,
     ) -> tuple[dict[str, object], int]:
-        cached = candidate.article.token_count is not None
-        token_count = candidate.article.token_count or 0
+        cached = candidate.token_count is not None
+        token_count = candidate.token_count or 0
         if not cached:
-            token_count = await self._token_counter.count_tokens(candidate.article.as_reference())
-            await self._repository.set_token_count(candidate.article.id, token_count)
+            token_count = await self._token_counter.count_tokens(candidate.as_reference())
+            if isinstance(candidate, KnowledgeArticle):
+                await self._repository.set_token_count(candidate.id, token_count)
 
         exclusion_reason = self._exclusion_reason(selected_tokens, token_count)
         return (
             {
-                "title": candidate.article.title,
-                "url": candidate.article.url,
-                "rank": round(candidate.rank, 6),
+                "title": candidate.title,
+                "url": candidate.url,
+                "rank": round(rank, 6) if rank is not None else None,
                 "token_count": token_count,
                 "token_count_cached": cached,
                 "selected": exclusion_reason is None,

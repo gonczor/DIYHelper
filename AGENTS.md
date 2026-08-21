@@ -11,6 +11,7 @@ and the code.
 - For endpoints provide a short description in the docstring to make it obvious for the user (or 
   frontend engineer) browsing the docs how to use it.
 - When handling a GitHub issue, create and switch to a dedicated branch before implementation. Use
-  the branch name schema `issue/<number>-<short-description>`.
+  the branch name schema `issue/<number>-<short-description>`. New branch must be created from 
+  freshly pulled master unless explicitly told otherwise.
 - For design changes or solution exploration, present the proposed behavior, scope, and tradeoffs
   first. Do not begin implementation until the user explicitly agrees to the solution.

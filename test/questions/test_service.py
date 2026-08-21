@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName
+from app.knowledge.domain import KnowledgeArticle, KnowledgeSourceName, StoredKnowledgeReference
 from app.questions.domain import ConversationMessage, KnowledgeAnswerMode
 from app.questions.service import QuestionService
 
@@ -25,7 +25,7 @@ class StubConversationRepository:
         return self.conversation
 
     async def replace_context(self, conversation, messages, summary):
-        conversation.messages = [message.model_dump() for message in messages]
+        conversation.messages = [message.model_dump(exclude_defaults=True) for message in messages]
         conversation.summary = summary
         self.replacements.append((list(messages), summary))
 
@@ -50,8 +50,8 @@ class StubKnowledgeSelection:
         self.articles = articles or []
         self.calls = []
 
-    async def select(self, query, sources, conversation_id):
-        self.calls.append((query, sources, conversation_id))
+    async def select(self, query, sources, conversation_id, carried_references=None):
+        self.calls.append((query, sources, conversation_id, carried_references or []))
         return self.articles
 
 
@@ -100,7 +100,7 @@ async def test_loads_ranked_articles_for_selected_sources() -> None:
     assert gemini.answer_calls[0][0] == selected
     assert gemini.answer_calls[0][1] is KnowledgeAnswerMode.REFERENCED
     assert knowledge.calls == [
-        ("Projects?", [KnowledgeSourceName.HACKADAY], repository.conversation.id)
+        ("Projects?", [KnowledgeSourceName.HACKADAY], repository.conversation.id, [])
     ]
 
 
@@ -116,7 +116,75 @@ async def test_omitted_sources_searches_every_source() -> None:
 
     assert gemini.answer_calls[0][0] == selected
     assert gemini.answer_calls[0][1] is KnowledgeAnswerMode.REFERENCED
-    assert knowledge.calls == [("Projects?", None, repository.conversation.id)]
+    assert knowledge.calls == [("Projects?", None, repository.conversation.id, [])]
+
+
+@pytest.mark.asyncio
+async def test_carries_preceding_assistant_references_and_persists_selected_urls() -> None:
+    previous = StoredKnowledgeReference(
+        source=KnowledgeSourceName.HACKADAY,
+        url="https://example.test/previous",
+    )
+    selected = [article(2)]
+    repository = StubConversationRepository(
+        messages=[
+            {"role": "user", "content": "Atmel?"},
+            {
+                "role": "model",
+                "content": "Atmel makes microcontrollers.",
+                "references": [previous.model_dump(mode="json")],
+            },
+        ]
+    )
+    knowledge = StubKnowledgeSelection(selected)
+    service = QuestionService(repository, knowledge, StubGemini())
+
+    _ = [
+        event
+        async for event in service.answer(
+            "Tell me more", [KnowledgeSourceName.HACKADAY], repository.conversation.id
+        )
+    ]
+
+    assert knowledge.calls == [
+        (
+            "Tell me more",
+            [KnowledgeSourceName.HACKADAY],
+            repository.conversation.id,
+            [previous],
+        )
+    ]
+    assert repository.conversation.messages[-1]["references"] == [
+        {
+            "source": KnowledgeSourceName.HACKADAY,
+            "url": selected[0].url,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_general_knowledge_neither_carries_nor_persists_references() -> None:
+    repository = StubConversationRepository(
+        messages=[
+            {
+                "role": "model",
+                "content": "Earlier answer",
+                "references": [
+                    {
+                        "source": KnowledgeSourceName.HACKADAY,
+                        "url": "https://example.test/previous",
+                    }
+                ],
+            }
+        ]
+    )
+    knowledge = StubKnowledgeSelection()
+    service = QuestionService(repository, knowledge, StubGemini())
+
+    _ = [event async for event in service.answer("New topic", [], repository.conversation.id)]
+
+    assert knowledge.calls == []
+    assert "references" not in repository.conversation.messages[-1]
 
 
 @pytest.mark.asyncio
