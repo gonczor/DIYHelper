@@ -13,6 +13,8 @@ def document(
     title: str,
     content: str,
     source: KnowledgeSourceName = KnowledgeSourceName.HACKADAY,
+    categories: list[str] | None = None,
+    tags: list[str] | None = None,
 ) -> KnowledgeDocument:
     return KnowledgeDocument(
         source=source,
@@ -20,6 +22,8 @@ def document(
         url=url,
         content=content,
         published_at=datetime(2026, 7, 3, tzinfo=UTC),
+        categories=categories or [],
+        tags=tags or [],
     )
 
 
@@ -75,6 +79,92 @@ async def test_search_filters_sources(db_session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_uses_or_matching_for_natural_language_fillers(
+    db_session: AsyncSession,
+) -> None:
+    repository = KnowledgeRepository(db_session)
+    await repository.upsert_documents(
+        [
+            document(
+                url="https://example.test/atmega",
+                title="ATmega328P guide",
+                content="Microcontroller details.",
+            )
+        ]
+    )
+
+    result = await repository.search("I want info about Atmega328P", None, limit=10)
+
+    assert [candidate.article.url for candidate in result] == ["https://example.test/atmega"]
+
+
+@pytest.mark.asyncio
+async def test_search_ranks_multi_term_and_exact_taxonomy_matches_first(
+    db_session: AsyncSession,
+) -> None:
+    repository = KnowledgeRepository(db_session)
+    await repository.upsert_documents(
+        [
+            document(
+                url="https://example.test/both",
+                title="Two controllers",
+                content="ATmega328 and ESP32 used together.",
+            ),
+            document(
+                url="https://example.test/one",
+                title="ATmega328 project",
+                content="One controller.",
+            ),
+            document(
+                url="https://example.test/body",
+                title="Controller notes",
+                content="A project involving SensorBus.",
+            ),
+            document(
+                url="https://example.test/tag",
+                title="Controller notes",
+                content="A project.",
+                categories=["Embedded systems"],
+                tags=["SensorBus"],
+            ),
+        ]
+    )
+
+    products = await repository.search("atmega328 or esp32", None, limit=10)
+    taxonomy = await repository.search("SensorBus", None, limit=10)
+    category = await repository.search("Embedded", None, limit=10)
+
+    assert products[0].article.url == "https://example.test/both"
+    assert {candidate.article.url for candidate in products} >= {
+        "https://example.test/both",
+        "https://example.test/one",
+    }
+    assert taxonomy[0].article.url == "https://example.test/tag"
+    assert taxonomy[0].article.tags == ["SensorBus"]
+    assert category[0].article.categories == ["Embedded systems"]
+
+
+@pytest.mark.asyncio
+async def test_search_supports_prefixes_and_empty_lexemes(db_session: AsyncSession) -> None:
+    repository = KnowledgeRepository(db_session)
+    await repository.upsert_documents(
+        [
+            document(
+                url="https://example.test/prefix",
+                title="ATmega328P board",
+                content="Controller.",
+            )
+        ]
+    )
+
+    prefix = await repository.search("ATmega", None, limit=10)
+    empty = await repository.search("the and or", None, limit=10)
+
+    assert [candidate.article.url for candidate in prefix] == ["https://example.test/prefix"]
+    assert empty == []
+
+
+@pytest.mark.asyncio
 async def test_upsert_invalidates_token_count_only_when_article_changes(
     db_session: AsyncSession,
 ) -> None:
@@ -101,8 +191,22 @@ async def test_upsert_invalidates_token_count_only_when_article_changes(
     )
     changed = (await repository.search("Changed", None, limit=1))[0]
 
+    await repository.set_token_count(changed.article.id, 84)
+    await repository.upsert_documents(
+        [
+            document(
+                url=original.url,
+                title=original.title,
+                content="Changed content.",
+                tags=["New taxonomy"],
+            )
+        ]
+    )
+    taxonomy_changed = (await repository.search("taxonomy", None, limit=1))[0]
+
     assert unchanged.article.token_count == 42
     assert changed.article.token_count is None
+    assert taxonomy_changed.article.token_count is None
 
 
 @pytest.mark.asyncio

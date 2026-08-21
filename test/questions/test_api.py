@@ -168,6 +168,15 @@ async def test_question_retrieves_ranked_article_and_caches_token_count(
 
     assert response.status_code == 200
     assert "event: done" in response.text
+    metadata_line = next(line for line in response.text.splitlines() if line.startswith("data: "))
+    metadata = json.loads(metadata_line.removeprefix("data: "))
+    assert metadata["references"] == [
+        {
+            "source": "hackaday",
+            "url": "https://example.test/esp32-weather",
+            "title": "ESP32 weather station",
+        }
+    ]
     retrieval_gemini_client.aio.models.count_tokens.assert_awaited_once()
     generation_call = retrieval_gemini_client.aio.models.generate_content_stream.await_args
     reference_text = generation_call.kwargs["contents"][0].parts[0].text

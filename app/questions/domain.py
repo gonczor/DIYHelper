@@ -24,3 +24,4 @@ class QuestionEvent(BaseModel):
     conversation_id: UUID | None = None
     text: str | None = None
     message: str | None = None
+    references: list[StoredKnowledgeReference] = Field(default_factory=list)

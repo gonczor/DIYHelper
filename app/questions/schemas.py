@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.knowledge.domain import KnowledgeSourceName
+from app.knowledge.domain import KnowledgeSourceName, StoredKnowledgeReference
 
 
 class AskQuestionRequest(BaseModel):
@@ -41,6 +41,7 @@ class AskQuestionRequest(BaseModel):
 class ConversationMessageResponse(BaseModel):
     role: Literal["user", "model"]
     content: str
+    references: list[StoredKnowledgeReference] = Field(default_factory=list)
 
 
 class ConversationSummaryResponse(BaseModel):

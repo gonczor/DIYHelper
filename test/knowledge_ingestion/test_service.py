@@ -21,6 +21,8 @@ class StubSource:
                     url="https://hackaday.com/example/",
                     content="Useful article text.",
                     published_at=datetime(2026, 7, 3, tzinfo=UTC),
+                    categories=["Microcontrollers"],
+                    tags=["ATmega328P", "Arduino"],
                 )
             ],
             discovered=1,
@@ -61,6 +63,8 @@ async def test_ingest_saves_a_monthly_artifact() -> None:
     path, content, content_type = storage.saved
     assert path == "knowledge/hackaday/2026-07.txt"
     assert b"title: Example hack" in content
+    assert b"categories: Microcontrollers" in content
+    assert b"tags: ATmega328P, Arduino" in content
     assert b"Useful article text." in content
     assert content_type == "text/plain; charset=utf-8"
     assert repository.documents[0].url == "https://hackaday.com/example/"

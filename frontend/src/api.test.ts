@@ -13,9 +13,15 @@ describe("parseEventBlock", () => {
   it("parses an SSE event with JSON data", () => {
     expect(
       parseEventBlock(
-        'event: metadata\ndata: {"event":"metadata","conversation_id":"abc"}',
+        'event: metadata\ndata: {"event":"metadata","conversation_id":"abc","references":[{"source":"hackaday","url":"https://example.test/article","title":"Article"}]}',
       ),
-    ).toEqual({ event: "metadata", conversation_id: "abc" });
+    ).toEqual({
+      event: "metadata",
+      conversation_id: "abc",
+      references: [
+        { source: "hackaday", url: "https://example.test/article", title: "Article" },
+      ],
+    });
   });
 
   it("returns null for comments and malformed blocks", () => {

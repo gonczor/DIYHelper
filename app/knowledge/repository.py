@@ -1,8 +1,10 @@
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.knowledge.domain import (
     KnowledgeArticle,
@@ -26,6 +28,8 @@ class KnowledgeRepository:
                 (KnowledgeArticleRecord.title == existing.title)
                 & (KnowledgeArticleRecord.content == existing.content)
                 & (KnowledgeArticleRecord.published_at.is_not_distinct_from(existing.published_at))
+                & (KnowledgeArticleRecord.categories == existing.categories)
+                & (KnowledgeArticleRecord.tags == existing.tags)
             )
             statement = statement.on_conflict_do_update(
                 constraint="uq_knowledge_articles_source_url",
@@ -33,6 +37,8 @@ class KnowledgeRepository:
                     "title": existing.title,
                     "content": existing.content,
                     "published_at": existing.published_at,
+                    "categories": existing.categories,
+                    "tags": existing.tags,
                     "token_count": case(
                         (unchanged, KnowledgeArticleRecord.token_count),
                         else_=None,
@@ -51,17 +57,26 @@ class KnowledgeRepository:
     ) -> list[RankedKnowledgeArticle]:
         """Return complete articles ranked by relevance to a user's query.
 
-        ``websearch_to_tsquery`` converts ordinary user text into PostgreSQL's safe full-text query
-        representation. ``ts_rank_cd`` scores matching rows against the weighted vector generated
-        from each title and body. Optional source filtering is applied before the result limit, and
-        publication time plus URL provide deterministic tie-breaking for equal ranks.
+        PostgreSQL normalizes ordinary user text into lexemes. OR and prefix queries retain partial
+        matches, while matched-term coverage and ``ts_rank_cd`` favor more complete and exact
+        matches against weighted title, taxonomy, and body text. Optional source filtering is
+        applied before the result limit; publication time and URL break remaining ties.
         """
-        search_query = func.websearch_to_tsquery("english", query)
-        rank = func.ts_rank_cd(KnowledgeArticleRecord.search_vector, search_query).label("rank")
+        lexemes = await self._normalized_lexemes(query)
+        if not lexemes:
+            return []
+        exact_query = func.to_tsquery("english", self._tsquery_text(lexemes, prefix=False))
+        prefix_query = func.to_tsquery("english", self._tsquery_text(lexemes, prefix=True))
+        rank = (
+            func.ts_rank_cd(KnowledgeArticleRecord.search_vector, exact_query)
+            + 0.25 * func.ts_rank_cd(KnowledgeArticleRecord.search_vector, prefix_query)
+        ).label("rank")
+        matched_terms = self._matched_term_count(lexemes)
         statement = (
             select(KnowledgeArticleRecord, rank)
-            .where(KnowledgeArticleRecord.search_vector.op("@@")(search_query))
+            .where(KnowledgeArticleRecord.search_vector.op("@@")(prefix_query))
             .order_by(
+                matched_terms.desc(),
                 rank.desc(),
                 KnowledgeArticleRecord.published_at.desc().nullslast(),
                 KnowledgeArticleRecord.url.asc(),
@@ -78,6 +93,35 @@ class KnowledgeRepository:
             )
             for row in rows
         ]
+
+    async def _normalized_lexemes(self, query: str) -> list[str]:
+        vector = func.to_tsvector("english", query)
+        value = await self._session.scalar(select(func.tsvector_to_array(vector)))
+        return cast(list[str], value or [])
+
+    def _matched_term_count(self, lexemes: list[str]) -> ColumnElement[int]:
+        matched_terms: ColumnElement[int] | None = None
+        for lexeme in lexemes:
+            term_query = func.to_tsquery("english", self._tsquery_text([lexeme], prefix=True))
+            term_match = case(
+                (KnowledgeArticleRecord.search_vector.op("@@")(term_query), 1),
+                else_=0,
+            )
+            matched_terms = term_match if matched_terms is None else matched_terms + term_match
+        if matched_terms is None:
+            raise ValueError("at least one search lexeme is required")
+        return matched_terms
+
+    @staticmethod
+    def _tsquery_text(lexemes: list[str], *, prefix: bool) -> str:
+        suffix = ":*" if prefix else ""
+        return " | ".join(
+            f"'{KnowledgeRepository._quote_lexeme(lexeme)}'{suffix}" for lexeme in lexemes
+        )
+
+    @staticmethod
+    def _quote_lexeme(lexeme: str) -> str:
+        return lexeme.replace("'", "''")
 
     async def set_token_count(self, article_id: UUID, token_count: int) -> None:
         article = await self._session.get(KnowledgeArticleRecord, article_id)
@@ -121,4 +165,6 @@ class KnowledgeRepository:
             content=record.content,
             published_at=record.published_at,
             token_count=record.token_count,
+            categories=record.categories,
+            tags=record.tags,
         )

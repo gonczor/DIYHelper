@@ -67,6 +67,11 @@ a transitional snapshot as `knowledge/hackaday/2026-07.txt`. A specific month ca
 to rerun a failed or incomplete import. Each invocation creates a task record so its status and
 result can be inspected later.
 
+Hackaday categories and tags are collected with each article and included in both the monthly
+artifact and PostgreSQL search index. After applying a taxonomy-related migration, rerun ingestion
+for previously imported months to backfill those fields; the source-and-URL upsert updates existing
+rows without creating duplicates.
+
 Trigger a run with `POST /knowledge-ingestion/tasks` and inspect it with `GET /tasks/{task_id}`.
 Both endpoints require the value of `AUTH_HEADER` in the `X-Auth-Token` request header. The request
 body accepts `source` (currently only `hackaday`) and an optional `target_month` in `YYYY-MM` format;
@@ -100,8 +105,10 @@ context while the latest 6 messages remain verbatim. Set `GEMINI_API_KEY` to use
 
 Ingested articles are stored as complete documents in PostgreSQL and selected with weighted
 full-text search before a question is sent to Gemini. Search is restricted by the requested source
-scope and ranks title matches above content matches. Complete articles are considered in rank order
-and included up to configurable article-count and knowledge-token limits; articles are not split or
+scope. Query lexemes use OR matching, with articles matching more terms ranked first; exact title,
+category, and tag matches are weighted above content, while discounted prefix matches allow a term
+such as `ATmega` to retrieve `ATmega328P`. Complete articles are considered in rank order and
+included up to configurable article-count and knowledge-token limits; articles are not split or
 truncated. Token counts are calculated through Gemini when first needed and then cached.
 
 Every retrieval produces a structured log showing the source scope, candidate article URLs and

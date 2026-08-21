@@ -148,4 +148,15 @@ class HackadaySource(KnowledgeSource):
             url=url,
             content=text,
             published_at=published_at,
+            categories=self._taxonomy_values(article, ".cat-links a, .entry-category a"),
+            tags=self._taxonomy_values(article, ".tags-links a, .entry-tags a"),
         )
+
+    @staticmethod
+    def _taxonomy_values(article: Tag, selector: str) -> list[str]:
+        values: list[str] = []
+        for link in article.select(selector):
+            value = link.get_text(" ", strip=True)
+            if value and value not in values:
+                values.append(value)
+        return values

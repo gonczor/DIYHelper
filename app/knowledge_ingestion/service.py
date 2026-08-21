@@ -68,6 +68,8 @@ class KnowledgeIngestionService:
                 f"url: {document.url}",
                 f"title: {document.title}",
                 f"published_at: {published_at}",
+                f"categories: {', '.join(document.categories)}",
+                f"tags: {', '.join(document.tags)}",
                 "",
                 document.content.strip(),
             )

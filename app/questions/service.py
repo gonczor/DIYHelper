@@ -71,7 +71,12 @@ class QuestionService:
                 carried_references,
             )
         )
-        yield QuestionEvent(event="metadata", conversation_id=conversation.id)
+        references = self._stored_references(articles)
+        yield QuestionEvent(
+            event="metadata",
+            conversation_id=conversation.id,
+            references=references,
+        )
 
         answer = ""
         mode = self._answer_mode(sources, articles)
@@ -79,9 +84,6 @@ class QuestionService:
             answer += text
             yield QuestionEvent(event="text", text=text)
 
-        references = [
-            StoredKnowledgeReference(source=article.source, url=article.url) for article in articles
-        ]
         messages.append(ConversationMessage(role="model", content=answer, references=references))
         await self._repository.replace_context(conversation, messages, summary)
         yield QuestionEvent(event="done", conversation_id=conversation.id)
@@ -105,3 +107,16 @@ class QuestionService:
             if message.role == "model":
                 return message.references
         return []
+
+    @staticmethod
+    def _stored_references(
+        articles: list[KnowledgeArticle | KnowledgeReference],
+    ) -> list[StoredKnowledgeReference]:
+        return [
+            StoredKnowledgeReference(
+                source=article.source,
+                url=article.url,
+                title=article.title,
+            )
+            for article in articles
+        ]

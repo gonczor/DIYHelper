@@ -54,11 +54,16 @@ async def test_streams_expected_gemini_request() -> None:
     assert call.kwargs["model"] == MODEL
     assert call.kwargs["config"].system_instruction == RESTRICTED_KNOWLEDGE_INSTRUCTION
     contents = call.kwargs["contents"]
-    assert "Reference documents:\n===== DOCUMENT =====" in contents[0].parts[0].text
+    assert "Reference documents:\nReference [1]:\n===== DOCUMENT =====" in (
+        contents[0].parts[0].text
+    )
     assert "source document" in contents[0].parts[0].text
     assert contents[1].parts[0].text == "Conversation summary:\nearlier context"
     assert contents[2].role == "user"
     assert contents[2].parts[0].text == "question"
+    assert "Cite relevant claims with their numbered marker" in (
+        call.kwargs["config"].system_instruction
+    )
 
 
 @pytest.mark.asyncio

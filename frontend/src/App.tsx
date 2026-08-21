@@ -145,6 +145,11 @@ function App() {
 
     function handleQuestionEvent(streamEvent: QuestionEvent) {
       if (streamEvent.conversation_id) setConversationId(streamEvent.conversation_id);
+      if (streamEvent.event === "metadata" && streamEvent.references) {
+        setMessages(function addAnswerReferences(current) {
+          return updateMessageReferences(current, answerId, streamEvent.references ?? []);
+        });
+      }
       if (streamEvent.event === "text" && streamEvent.text) {
         setMessages(function appendText(current) {
           return updateMessage(current, answerId, streamEvent.text ?? "");
@@ -257,11 +262,26 @@ function updateMessage(messages: Message[], id: string, text: string): Message[]
   });
 }
 
-function messageFromApi(message: { role: "user" | "model"; content: string }): Message {
+function updateMessageReferences(
+  messages: Message[],
+  id: string,
+  references: NonNullable<Message["references"]>,
+): Message[] {
+  return messages.map(function addReferencesToMatchingMessage(message) {
+    return message.id === id ? { ...message, references } : message;
+  });
+}
+
+function messageFromApi(message: {
+  role: "user" | "model";
+  content: string;
+  references?: Message["references"];
+}): Message {
   return {
     id: crypto.randomUUID(),
     role: message.role === "user" ? "user" : "assistant",
     content: message.content,
+    references: message.references,
   };
 }
 
